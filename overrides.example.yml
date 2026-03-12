@@ -1,0 +1,33 @@
+# overrides.yml example
+# Use this file to manually correct package→repo mappings.
+#
+# Specify with: overrides_path: "./overrides.yml" in config.yml
+#
+# Each entry maps a package (by name + ecosystem) to a repo.
+# Set repo to null to mark a package as external (not internal).
+
+overrides:
+  # Map an npm scoped package to its source repo
+  - package: "@my-org/shared-utils"
+    ecosystem: "npm"
+    repo: "my-org/shared-utils"
+
+  # Map a Go module to its repo (strip version suffix automatically)
+  - package: "github.com/my-org/go-sdk"
+    ecosystem: "go"
+    repo: "my-org/go-sdk"
+
+  # Mark a package as external (not in any scanned org)
+  - package: "internal-framework"
+    ecosystem: "npm"
+    repo: null
+
+  # Maven artifact with group:artifact notation
+  - package: "com.mycompany:core-lib"
+    ecosystem: "maven"
+    repo: "my-org/java-core-lib"
+
+  # Python package (normalizes hyphens/underscores automatically)
+  - package: "my-company-sdk"
+    ecosystem: "pypi"
+    repo: "my-org/python-sdk"

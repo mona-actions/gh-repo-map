@@ -1,0 +1,11 @@
+# Secrets
+*.pem
+.env
+
+# Runtime artifacts
+checkpoint.json
+checkpoint.json.tmp
+output/
+
+# Go
+vendor/
