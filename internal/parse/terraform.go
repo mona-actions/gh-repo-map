@@ -52,7 +52,7 @@ edges = append(edges, model.FileScanEdge{
 Target:     key,
 Type:       model.DepTypeTerraform,
 SourceFile: sourceFile,
-Detail:     model.TerraformDetail{Source: source, Ref: ref},
+Detail:     model.TerraformDetail{Type: model.DepTypeTerraform, Source: source, Ref: ref},
 })
 }
 }

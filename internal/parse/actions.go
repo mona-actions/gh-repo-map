@@ -74,7 +74,7 @@ edges = append(edges, model.FileScanEdge{
 Target:     fmt.Sprintf("%s/%s", org, repo),
 Type:       model.DepTypeWorkflow,
 SourceFile: sourceFile,
-Detail:     model.WorkflowDetail{Uses: uses},
+Detail:     model.WorkflowDetail{Type: model.DepTypeWorkflow, Uses: uses},
 })
 }
 return edges, unresolvable
@@ -88,7 +88,7 @@ edges = append(edges, model.FileScanEdge{
 Target:     fmt.Sprintf("%s/%s", org, repo),
 Type:       model.DepTypeAction,
 SourceFile: sourceFile,
-Detail:     model.ActionDetail{Uses: uses},
+Detail:     model.ActionDetail{Type: model.DepTypeAction, Uses: uses},
 })
 }
 return edges, unresolvable

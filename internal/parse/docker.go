@@ -35,7 +35,7 @@ edges = append(edges, model.FileScanEdge{
 Target:     fmt.Sprintf("%s/%s", org, repo),
 Type:       model.DepTypeDocker,
 SourceFile: sourceFile,
-Detail:     model.DockerDetail{Image: image},
+Detail:     model.DockerDetail{Type: model.DepTypeDocker, Image: image},
 })
 }
 }
@@ -47,7 +47,7 @@ edges = append(edges, model.FileScanEdge{
 Target:     fmt.Sprintf("%s/%s", org, repo),
 Type:       model.DepTypeDocker,
 SourceFile: sourceFile,
-Detail:     model.DockerDetail{Image: fmt.Sprintf("git clone: %s/%s", org, repo)},
+Detail:     model.DockerDetail{Type: model.DepTypeDocker, Image: fmt.Sprintf("git clone: %s/%s", org, repo)},
 })
 }
 }
@@ -116,7 +116,7 @@ edges = append(edges, model.FileScanEdge{
 Target:     fmt.Sprintf("%s/%s", org, repo),
 Type:       model.DepTypeDocker,
 SourceFile: sourceFile,
-Detail:     model.DockerDetail{Image: svc.Image},
+Detail:     model.DockerDetail{Type: model.DepTypeDocker, Image: svc.Image},
 })
 }
 }

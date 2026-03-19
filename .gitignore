@@ -9,3 +9,6 @@ output/
 
 # Go
 vendor/
+
+gh-repo-map
+gh-repo-map.exe

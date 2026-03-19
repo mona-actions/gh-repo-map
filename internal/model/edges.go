@@ -7,7 +7,7 @@ Repo:          repo,
 Type:          DepTypePackage,
 Confidence:    ConfidenceHigh,
 TargetScanned: targetScanned,
-Detail:        PackageDetail{PackageName: pkgName, Ecosystem: ecosystem, Version: version},
+Detail:        PackageDetail{Type: DepTypePackage, PackageName: pkgName, Ecosystem: ecosystem, Version: version},
 SourceFile:    sourceFile,
 }
 }
@@ -19,7 +19,7 @@ Repo:          repo,
 Type:          DepTypeWorkflow,
 Confidence:    ConfidenceHigh,
 TargetScanned: targetScanned,
-Detail:        WorkflowDetail{Uses: uses},
+Detail:        WorkflowDetail{Type: DepTypeWorkflow, Uses: uses},
 SourceFile:    sourceFile,
 }
 }
@@ -31,7 +31,7 @@ Repo:          repo,
 Type:          DepTypeAction,
 Confidence:    ConfidenceHigh,
 TargetScanned: targetScanned,
-Detail:        ActionDetail{Uses: uses},
+Detail:        ActionDetail{Type: DepTypeAction, Uses: uses},
 SourceFile:    sourceFile,
 }
 }
@@ -43,7 +43,7 @@ Repo:          repo,
 Type:          DepTypeSubmodule,
 Confidence:    ConfidenceHigh,
 TargetScanned: targetScanned,
-Detail:        SubmoduleDetail{URL: url, Path: path},
+Detail:        SubmoduleDetail{Type: DepTypeSubmodule, URL: url, Path: path},
 SourceFile:    sourceFile,
 }
 }
@@ -55,7 +55,7 @@ Repo:          repo,
 Type:          DepTypeDocker,
 Confidence:    ConfidenceHigh,
 TargetScanned: targetScanned,
-Detail:        DockerDetail{Image: image},
+Detail:        DockerDetail{Type: DepTypeDocker, Image: image},
 SourceFile:    sourceFile,
 }
 }
@@ -67,7 +67,7 @@ Repo:          repo,
 Type:          DepTypeTerraform,
 Confidence:    ConfidenceHigh,
 TargetScanned: targetScanned,
-Detail:        TerraformDetail{Source: source, Ref: ref},
+Detail:        TerraformDetail{Type: DepTypeTerraform, Source: source, Ref: ref},
 SourceFile:    sourceFile,
 }
 }
@@ -80,7 +80,7 @@ Repo:          repo,
 Type:          DepTypeScript,
 Confidence:    ConfidenceLow,
 TargetScanned: targetScanned,
-Detail:        ScriptDetail{Match: match, MatchType: matchType},
+Detail:        ScriptDetail{Type: DepTypeScript, Match: match, MatchType: matchType},
 SourceFile:    sourceFile,
 }
 }

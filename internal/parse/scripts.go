@@ -70,7 +70,7 @@ edges = append(edges, model.FileScanEdge{
 Target:     fmt.Sprintf("%s/%s", org, repo),
 Type:       model.DepTypeScript,
 SourceFile: sourceFile,
-Detail:     model.ScriptDetail{Match: strings.TrimSpace(line), MatchType: sp.matchType},
+Detail:     model.ScriptDetail{Type: model.DepTypeScript, Match: strings.TrimSpace(line), MatchType: sp.matchType},
 })
 }
 }

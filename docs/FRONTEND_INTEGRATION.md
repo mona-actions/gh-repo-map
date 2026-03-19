@@ -123,13 +123,13 @@ The core data structure. A map of `"org/repo-name"` → `RepoNode`.
 
 | `type` | Description | `detail` shape |
 |--------|-------------|----------------|
-| `package` | Package manager dependency (npm, Go, Maven, etc.) | `{ package_name, ecosystem, version }` |
-| `workflow` | GitHub Actions reusable workflow | `{ uses }` |
-| `action` | GitHub Actions action | `{ uses }` |
-| `submodule` | Git submodule | `{ url, path }` |
-| `docker` | Docker image from a known registry | `{ image }` |
-| `terraform` | Terraform module source | `{ source, ref? }` |
-| `script` | Reference found in build scripts (lower confidence) | `{ match, match_type }` |
+| `package` | Package manager dependency (npm, Go, Maven, etc.) | `{ type: "package", package_name, ecosystem, version }` |
+| `workflow` | GitHub Actions reusable workflow | `{ type: "workflow", uses }` |
+| `action` | GitHub Actions action | `{ type: "action", uses }` |
+| `submodule` | Git submodule | `{ type: "submodule", url, path }` |
+| `docker` | Docker image from a known registry | `{ type: "docker", image }` |
+| `terraform` | Terraform module source | `{ type: "terraform", source, ref? }` |
+| `script` | Reference found in build scripts (lower confidence) | `{ type: "script", match, match_type }` |
 
 #### Confidence Levels
 

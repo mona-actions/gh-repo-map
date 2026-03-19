@@ -11,7 +11,7 @@ import (
 
 	gogh "github.com/cli/go-gh/v2"
 	"github.com/gofri/go-github-ratelimit/v2/github_ratelimit"
-	"github.com/google/go-github/v62/github"
+	"github.com/google/go-github/v84/github"
 	"github.com/jferrl/go-githubauth"
 	"github.com/shurcooL/githubv4"
 	"golang.org/x/oauth2"

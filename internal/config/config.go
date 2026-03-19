@@ -4,6 +4,7 @@ package config
 import (
 "fmt"
 "os"
+"strconv"
 
 "gopkg.in/yaml.v3"
 )
@@ -89,14 +90,23 @@ if cfg.Auth.Type == "" {
 cfg.Auth.Type = "pat"
 }
 }
-if key := os.Getenv("GH_APP_PRIVATE_KEY"); key != "" {
+if key := os.Getenv("GH_APP_PRIVATE_KEY"); key != "" && cfg.Auth.PrivateKeyPath == "" {
 cfg.Auth.PrivateKeyPath = key
+}
+if idStr := os.Getenv("GH_APP_ID"); idStr != "" && cfg.Auth.AppID == 0 {
+if id, err := strconv.ParseInt(idStr, 10, 64); err == nil {
+cfg.Auth.AppID = id
+if cfg.Auth.Type == "" {
+cfg.Auth.Type = "github-app"
+}
+}
 }
 }
 
 // Validate checks that the config is internally consistent and complete.
-func Validate(cfg *Config) error {
-if len(cfg.Orgs) == 0 {
+// When resuming is true, orgs are not required (they come from the checkpoint).
+func Validate(cfg *Config, resuming bool) error {
+if !resuming && len(cfg.Orgs) == 0 {
 return fmt.Errorf("config validation: 'orgs' must contain at least one organization")
 }
 if cfg.Auth.Type != "" && cfg.Auth.Type != "github-app" && cfg.Auth.Type != "pat" {
@@ -140,7 +150,7 @@ return nil, fmt.Errorf("parsing config file %q: %w", path, err)
 }
 ApplyDefaults(&cfg)
 applyEnvOverrides(&cfg)
-if err := Validate(&cfg); err != nil {
+if err := Validate(&cfg, false); err != nil {
 return nil, err
 }
 return &cfg, nil

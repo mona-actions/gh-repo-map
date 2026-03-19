@@ -37,7 +37,7 @@ edges = append(edges, model.FileScanEdge{
 Target:     fmt.Sprintf("%s/%s", org, repo),
 Type:       model.DepTypeSubmodule,
 SourceFile: sourceFile,
-Detail:     model.SubmoduleDetail{URL: url, Path: currentPath},
+Detail:     model.SubmoduleDetail{Type: model.DepTypeSubmodule, URL: url, Path: currentPath},
 })
 }
 }

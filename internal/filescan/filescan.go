@@ -10,6 +10,7 @@ import (
 "strings"
 
 "github.com/mona-actions/gh-repo-map/internal/auth"
+"github.com/mona-actions/gh-repo-map/internal/retry"
 "github.com/shurcooL/githubv4"
 )
 
@@ -36,10 +37,23 @@ return nil, err
 tree, resp, err := clients.REST.Git.GetTree(ctx, owner, repo, branch, true)
 if err != nil {
 if resp != nil && resp.StatusCode == 409 {
-// Empty repo or no commits
 return &TreeResult{}, nil
 }
+if resp != nil && retry.IsRetryableStatus(resp.StatusCode) {
+retryErr := retry.Do(ctx, "tree:"+owner+"/"+repo, func() error {
+var err2 error
+tree, resp, err2 = clients.REST.Git.GetTree(ctx, owner, repo, branch, true)
+if err2 != nil && resp != nil && resp.StatusCode == 409 {
+return nil
+}
+return err2
+}, func(e error) bool { return e != nil })
+if retryErr != nil {
+return nil, fmt.Errorf("fetching tree: %w", retryErr)
+}
+} else {
 return nil, fmt.Errorf("fetching tree: %w", err)
+}
 }
 
 var entries []TreeEntry

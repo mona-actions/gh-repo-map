@@ -4,15 +4,17 @@
 
 # ─── Authentication ─────────────────────────────────────────────────────────
 # Auth is resolved automatically if you don't configure it here:
-#   1. --token flag  2. GH_TOKEN env var  3. gh auth login
+#   1. CLI flags (--token or --app-id + --private-key-path)
+#   2. Env vars (GH_TOKEN or GH_APP_ID + GH_APP_PRIVATE_KEY)
+#   3. gh auth login (automatic)
 #
-# Only configure this section for GitHub App auth (higher rate limits):
+# GitHub App auth (recommended for scale — 5,000 req/hr per installation):
 # auth:
 #   type: "github-app"
-#   app_id: 123456
-#   private_key_path: "./my-app.pem"  # or set GH_APP_PRIVATE_KEY env var
+#   app_id: 123456                     # or set GH_APP_ID env var
+#   private_key_path: "./my-app.pem"   # or set GH_APP_PRIVATE_KEY env var (PEM content)
 #
-# Or to embed a PAT in the config (not recommended — use --token or GH_TOKEN):
+# PAT auth (not recommended in config — use --token flag or GH_TOKEN env var):
 # auth:
 #   type: "pat"
 #   token: "ghp_xxxxxxxxxxxx"

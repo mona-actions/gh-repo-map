@@ -74,7 +74,7 @@ OutputSplit:   "auto",
 LogLevel:      "default",
 },
 }
-if err := Validate(cfg); err == nil {
+if err := Validate(cfg, false); err == nil {
 t.Error("expected error for empty orgs, got nil")
 }
 }
@@ -99,7 +99,7 @@ OutputSplit:  "auto",
 LogLevel:     "default",
 },
 }
-if err := Validate(cfg); err == nil {
+if err := Validate(cfg, false); err == nil {
 t.Errorf("expected error for concurrency=%d, got nil", tt.concurrency)
 }
 })
@@ -116,7 +116,7 @@ OutputSplit:  "auto",
 LogLevel:     "default",
 },
 }
-if err := Validate(cfg); err == nil {
+if err := Validate(cfg, false); err == nil {
 t.Error("expected error for invalid auth type, got nil")
 }
 }
@@ -131,7 +131,7 @@ OutputSplit:  "auto",
 LogLevel:     "default",
 },
 }
-if err := Validate(cfg); err == nil {
+if err := Validate(cfg, false); err == nil {
 t.Error("expected error for github-app without app_id, got nil")
 }
 }

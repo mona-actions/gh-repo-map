@@ -2,7 +2,10 @@
 // This is the single source of truth — every other package imports these types.
 package model
 
-import "time"
+import (
+"encoding/json"
+"time"
+)
 
 // DependencyType enumerates the kinds of inter-repo dependencies we detect.
 type DependencyType string
@@ -39,42 +42,49 @@ ScanStatusPending ScanStatus = "pending"
 
 // PackageDetail holds detail for type=package edges.
 type PackageDetail struct {
-PackageName string `json:"package_name"`
-Ecosystem   string `json:"ecosystem"`
-Version     string `json:"version"`
+Type        DependencyType `json:"type"`
+PackageName string         `json:"package_name"`
+Ecosystem   string         `json:"ecosystem"`
+Version     string         `json:"version"`
 }
 
 // WorkflowDetail holds detail for type=workflow edges.
 type WorkflowDetail struct {
-Uses string `json:"uses"`
+Type DependencyType `json:"type"`
+Uses string         `json:"uses"`
 }
 
 // ActionDetail holds detail for type=action edges.
 type ActionDetail struct {
-Uses string `json:"uses"`
+Type DependencyType `json:"type"`
+Uses string         `json:"uses"`
 }
 
 // SubmoduleDetail holds detail for type=submodule edges.
 type SubmoduleDetail struct {
-URL  string `json:"url"`
-Path string `json:"path"`
+Type DependencyType `json:"type"`
+URL  string         `json:"url"`
+Path string         `json:"path"`
 }
 
 // DockerDetail holds detail for type=docker edges.
 type DockerDetail struct {
-Image string `json:"image"`
+Type  DependencyType `json:"type"`
+Image string         `json:"image"`
 }
 
 // TerraformDetail holds detail for type=terraform edges.
 type TerraformDetail struct {
-Source string `json:"source"`
-Ref    string `json:"ref,omitempty"`
+Type   DependencyType `json:"type"`
+Source string         `json:"source"`
+Ref    string         `json:"ref,omitempty"`
 }
 
 // ScriptDetail holds detail for type=script edges.
 type ScriptDetail struct {
-Match     string `json:"match"`
-MatchType string `json:"match_type"` // git_clone, curl, wget, go_install, pip_git
+Type      DependencyType `json:"type"`
+Match     string         `json:"match"`
+MatchType string         `json:"match_type"` // git_clone, curl, wget, go_install, pip_git
 }
 
 // DependencyEdge represents a single dependency from one repo to another.
@@ -85,6 +95,16 @@ Confidence    Confidence     `json:"confidence"`
 TargetScanned bool           `json:"target_scanned"`
 Detail        interface{}    `json:"detail"`
 SourceFile    string         `json:"source_file"`
+}
+
+// MarshalJSON ensures Detail is never null and always has a type discriminator.
+func (e DependencyEdge) MarshalJSON() ([]byte, error) {
+type Alias DependencyEdge
+a := Alias(e)
+if a.Detail == nil {
+a.Detail = map[string]interface{}{"type": string(a.Type)}
+}
+return json.Marshal(a)
 }
 
 // TransitiveDep represents a transitive dependency.
@@ -159,21 +179,24 @@ Detail     interface{}    `json:"detail,omitempty"`
 
 // FileScanData holds the collected file scan data for a repo.
 type FileScanData struct {
-FilesScanned  int            `json:"files_scanned"`
-TreeTruncated bool           `json:"tree_truncated"`
-Edges         []FileScanEdge `json:"edges"`
-Unresolvable  []string       `json:"unresolvable"`
+FilesScanned     int               `json:"files_scanned"`
+TreeTruncated    bool              `json:"tree_truncated"`
+Edges            []FileScanEdge    `json:"edges"`
+Unresolvable     []string          `json:"unresolvable"`
+ManifestConsumed []ConsumedPackage `json:"manifest_consumed,omitempty"`
 }
 
 // CheckpointRepo holds all state for a single repo in the checkpoint.
+// In v2, SBOMData and FileScanData are stored in results.ndjson instead.
+// These fields exist only for v1 migration compatibility (omitempty ensures they're not written when nil).
 type CheckpointRepo struct {
 Status        CheckpointRepoStatus `json:"status"`
 Archived      bool                 `json:"archived"`
 ForkOf        *string              `json:"fork_of"`
 TemplateFrom  *string              `json:"template_from"`
 DefaultBranch string               `json:"default_branch"`
-SBOMData      *SBOMData            `json:"sbom_data"`
-FileScanData  *FileScanData        `json:"filescan_data"`
+SBOMData      *SBOMData            `json:"sbom_data,omitempty"`
+FileScanData  *FileScanData        `json:"filescan_data,omitempty"`
 }
 
 // CheckpointStats holds aggregate scan statistics.

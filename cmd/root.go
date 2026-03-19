@@ -4,13 +4,17 @@ package cmd
 import (
 "bufio"
 "context"
+"encoding/json"
 "fmt"
 "os"
+"path/filepath"
 "strings"
 
 "github.com/mona-actions/gh-repo-map/internal/auth"
 "github.com/mona-actions/gh-repo-map/internal/config"
+"github.com/mona-actions/gh-repo-map/internal/model"
 "github.com/mona-actions/gh-repo-map/internal/orchestrator"
+"github.com/mona-actions/gh-repo-map/internal/progress"
 "github.com/spf13/cobra"
 )
 
@@ -20,12 +24,15 @@ var (
 cfgPath           string
 githubHost        string
 token             string
+appID             int64
+privateKeyPath    string
 orgsFile          string
 dryRun            bool
 resume            bool
 includeTransitive bool
 anonymize         bool
 cleanCheckpoints  bool
+showStatus        bool
 splitThreshold    int
 concurrency       int
 minCoverage       int
@@ -42,9 +49,11 @@ Actions, reusable workflows, submodules, Dockerfiles, Terraform modules,
 and build scripts.
 
 Authentication (in priority order):
-  1. --token flag
-  2. GH_TOKEN environment variable
-  3. gh auth login (automatic if gh CLI is authenticated)`,
+  1. --token flag or --app-id + --private-key-path flags
+  2. GH_TOKEN / GH_APP_ID + GH_APP_PRIVATE_KEY environment variables
+  3. gh auth login (automatic if gh CLI is authenticated)
+
+For enterprise scale (5,000+ repos), use GitHub App auth for higher rate limits.`,
 Version: version,
 RunE:    run,
 }
@@ -55,6 +64,8 @@ rootCmd.Flags().StringVar(&cfgPath, "config", "", "Path to config.yml (optional 
 
 // Auth
 rootCmd.Flags().StringVarP(&token, "token", "t", "", "GitHub personal access token (or set GH_TOKEN)")
+rootCmd.Flags().Int64Var(&appID, "app-id", 0, "GitHub App ID (or set GH_APP_ID)")
+rootCmd.Flags().StringVar(&privateKeyPath, "private-key-path", "", "Path to GitHub App private key PEM file (or set GH_APP_PRIVATE_KEY)")
 
 // Target
 rootCmd.Flags().StringVar(&githubHost, "github-host", "", "GitHub hostname (default: github.com, set for GHES)")
@@ -65,6 +76,7 @@ rootCmd.Flags().BoolVar(&dryRun, "dry-run", false, "Enumerate repos only, print 
 rootCmd.Flags().BoolVar(&resume, "resume", false, "Resume from latest checkpoint file")
 rootCmd.Flags().BoolVar(&includeTransitive, "include-transitive", false, "Compute transitive dependencies")
 rootCmd.Flags().BoolVar(&cleanCheckpoints, "clean-checkpoints", false, "Delete checkpoint after success")
+rootCmd.Flags().BoolVar(&showStatus, "status", false, "Show progress from checkpoint and exit")
 rootCmd.Flags().IntVar(&concurrency, "concurrency", 0, "Max concurrent org workers (1-10)")
 rootCmd.Flags().IntVar(&minCoverage, "min-coverage", 0, "Min % repos scanned before output (0-100)")
 rootCmd.Flags().IntVar(&splitThreshold, "split-threshold", 0, "Max repos per output file")
@@ -90,7 +102,12 @@ return err
 
 applyCLIOverrides(cfg)
 
-if err := config.Validate(cfg); err != nil {
+// --status: read checkpoint and print progress summary, then exit
+if showStatus {
+return printStatus(cfg)
+}
+
+if err := config.Validate(cfg, resume); err != nil {
 return fmt.Errorf("invalid configuration: %w", err)
 }
 
@@ -106,13 +123,22 @@ if err != nil {
 return fmt.Errorf("initializing auth: %w", err)
 }
 
+// Use interactive progress for default/quiet modes, log-based for verbose/debug
+var tracker progress.Tracker
+switch cfg.Options.LogLevel {
+case "verbose", "debug":
+tracker = progress.NewLogTracker()
+default:
+tracker = progress.NewPtermTracker()
+}
+
 ctx := context.Background()
 
 if dryRun {
-return orchestrator.DryRun(ctx, cfg, tp)
+return orchestrator.DryRun(ctx, cfg, tp, tracker)
 }
 
-return orchestrator.Run(ctx, cfg, tp, resume, includeTransitive, cleanCheckpoints, splitThreshold)
+return orchestrator.Run(ctx, cfg, tp, tracker, resume, includeTransitive, cleanCheckpoints, splitThreshold)
 }
 
 // loadConfig builds a Config from file and/or CLI flags.
@@ -148,6 +174,18 @@ func applyCLIOverrides(cfg *config.Config) {
 if token != "" {
 cfg.Auth.Token = token
 cfg.Auth.Type = "pat"
+}
+
+// GitHub App flags override config file app settings
+if appID > 0 {
+cfg.Auth.AppID = appID
+cfg.Auth.Type = "github-app"
+}
+if privateKeyPath != "" {
+cfg.Auth.PrivateKeyPath = privateKeyPath
+if cfg.Auth.AppID > 0 {
+cfg.Auth.Type = "github-app"
+}
 }
 
 if githubHost != "" {
@@ -215,4 +253,49 @@ result = append(result, item)
 }
 }
 return result
+}
+
+func printStatus(cfg *config.Config) error {
+cpPath := filepath.Join(filepath.Dir(cfg.Output.Path), "checkpoint.json")
+data, err := os.ReadFile(cpPath)
+if err != nil {
+return fmt.Errorf("no checkpoint found at %s — is a scan in progress?", cpPath)
+}
+
+var cp model.Checkpoint
+if err := json.Unmarshal(data, &cp); err != nil {
+return fmt.Errorf("parsing checkpoint: %w", err)
+}
+
+pending, done, failed, skipped := 0, 0, 0, 0
+for _, repo := range cp.Repos {
+switch {
+case repo.Status.SBOM == model.ScanStatusDone || repo.Status.FileScan == model.ScanStatusDone:
+done++
+case repo.Status.SBOM == model.ScanStatusFailed || repo.Status.FileScan == model.ScanStatusFailed:
+failed++
+case repo.Archived:
+skipped++
+default:
+pending++
+}
+}
+
+total := len(cp.Repos)
+coverage := 0
+if total > 0 {
+coverage = (done * 100) / total
+}
+
+fmt.Printf("Checkpoint: %s (v%s)\n", cpPath, cp.Version)
+fmt.Printf("Phase:      %s\n", cp.CurrentPhase)
+fmt.Printf("Host:       %s\n", cp.GitHubHost)
+fmt.Printf("Orgs:       %s\n", strings.Join(cp.Orgs, ", "))
+fmt.Printf("Started:    %s\n", cp.StartedAt.Format("2006-01-02 15:04:05 UTC"))
+fmt.Printf("Repos:      %d total\n", total)
+fmt.Printf("  Done:     %d (%d%%)\n", done, coverage)
+fmt.Printf("  Pending:  %d\n", pending)
+fmt.Printf("  Failed:   %d\n", failed)
+fmt.Printf("  Skipped:  %d\n", skipped)
+return nil
 }

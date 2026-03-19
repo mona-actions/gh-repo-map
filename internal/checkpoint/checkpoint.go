@@ -4,6 +4,7 @@ package checkpoint
 import (
 "encoding/json"
 "fmt"
+"log/slog"
 "os"
 "path/filepath"
 "sync"
@@ -12,7 +13,7 @@ import (
 "github.com/mona-actions/gh-repo-map/internal/model"
 )
 
-const checkpointVersion = "1.0.0"
+const checkpointVersion = "2.0.0"
 
 // Manager handles reading, writing, and updating the checkpoint file.
 type Manager struct {
@@ -21,6 +22,8 @@ path          string
 data          *model.Checkpoint
 pendingCount  int
 flushInterval int
+results       *ResultStore
+resultsPath   string
 }
 
 // NewManager creates a new checkpoint manager at the given path.
@@ -28,9 +31,11 @@ func NewManager(path string, flushInterval int) *Manager {
 if flushInterval <= 0 {
 flushInterval = 10
 }
+dir := filepath.Dir(path)
 return &Manager{
 path:          path,
 flushInterval: flushInterval,
+resultsPath:   filepath.Join(dir, "results.ndjson"),
 }
 }
 
@@ -55,10 +60,15 @@ Skipped:   map[string]int{},
 },
 }
 
+if err := m.openResults(); err != nil {
+return err
+}
+
 return m.flushLocked()
 }
 
-// Load reads an existing checkpoint from disk.
+// Load reads an existing checkpoint from disk. If it's a v1 checkpoint,
+// scan data is migrated to results.ndjson and the checkpoint is rewritten as v2.
 func (m *Manager) Load() error {
 m.mu.Lock()
 defer m.mu.Unlock()
@@ -73,7 +83,51 @@ if err := json.Unmarshal(data, &cp); err != nil {
 return fmt.Errorf("parsing checkpoint: %w", err)
 }
 
+// v1 → v2 migration: extract scan data from checkpoint into results.ndjson
+if cp.Version == "1.0.0" {
+slog.Info("migrating v1 checkpoint to v2", "repos", len(cp.Repos))
+if err := m.openResults(); err != nil {
+return fmt.Errorf("opening results for migration: %w", err)
+}
+for fullName, repo := range cp.Repos {
+if repo.SBOMData != nil || repo.FileScanData != nil {
+if err := m.results.Append(RepoResult{
+FullName:     fullName,
+SBOMData:     repo.SBOMData,
+FileScanData: repo.FileScanData,
+}); err != nil {
+return fmt.Errorf("migrating results for %s: %w", fullName, err)
+}
+repo.SBOMData = nil
+repo.FileScanData = nil
+}
+}
+cp.Version = checkpointVersion
+slog.Info("v1 migration complete")
+}
+
 m.data = &cp
+
+// Open results store if not already open (resumed v2 checkpoint)
+if m.results == nil {
+if err := m.openResults(); err != nil {
+return err
+}
+}
+
+return m.flushLocked()
+}
+
+func (m *Manager) openResults() error {
+dir := filepath.Dir(m.path)
+if err := os.MkdirAll(dir, 0755); err != nil {
+return fmt.Errorf("creating results directory: %w", err)
+}
+rs, err := NewResultStore(m.resultsPath)
+if err != nil {
+return err
+}
+m.results = rs
 return nil
 }
 
@@ -108,6 +162,36 @@ func (m *Manager) SetPhase(phase string) {
 m.mu.Lock()
 defer m.mu.Unlock()
 m.data.CurrentPhase = phase
+}
+
+// MergeRepos adds new repos to an existing checkpoint without overwriting existing entries.
+// Also adds any new orgs to the orgs list. Returns the number of repos added.
+func (m *Manager) MergeRepos(orgs []string, repos map[string]*model.CheckpointRepo) (int, error) {
+m.mu.Lock()
+defer m.mu.Unlock()
+
+// Add new orgs
+existingOrgs := make(map[string]bool)
+for _, o := range m.data.Orgs {
+existingOrgs[o] = true
+}
+for _, o := range orgs {
+if !existingOrgs[o] {
+m.data.Orgs = append(m.data.Orgs, o)
+}
+}
+
+// Merge repos — only add if not already present
+added := 0
+for name, repo := range repos {
+if _, exists := m.data.Repos[name]; !exists {
+m.data.Repos[name] = repo
+added++
+}
+}
+m.data.Stats.Total = len(m.data.Repos)
+
+return added, m.flushLocked()
 }
 
 // UpdateStats recalculates aggregate stats from repo statuses.
@@ -156,7 +240,7 @@ return m.flushLocked()
 func (m *Manager) flushLocked() error {
 m.pendingCount = 0
 
-data, err := json.MarshalIndent(m.data, "", "  ")
+data, err := json.Marshal(m.data)
 if err != nil {
 return fmt.Errorf("marshaling checkpoint: %w", err)
 }
@@ -179,8 +263,12 @@ return fmt.Errorf("atomic rename checkpoint: %w", err)
 return nil
 }
 
-// Delete removes the checkpoint file.
+// Delete removes the checkpoint and results files.
 func (m *Manager) Delete() error {
+if m.results != nil {
+_ = m.results.Close()
+_ = os.Remove(m.resultsPath)
+}
 return os.Remove(m.path)
 }
 
@@ -188,4 +276,39 @@ return os.Remove(m.path)
 func (m *Manager) Exists() bool {
 _, err := os.Stat(m.path)
 return err == nil
+}
+
+// AppendResult writes a scan result to the NDJSON results file.
+func (m *Manager) AppendResult(result RepoResult) error {
+if m.results == nil {
+return fmt.Errorf("results store not initialized")
+}
+return m.results.Append(result)
+}
+
+// LoadResults reads all scan results from the NDJSON file.
+func (m *Manager) LoadResults() (map[string]*RepoResult, error) {
+return LoadAll(m.resultsPath)
+}
+
+// Close closes the results store. Call when scanning is complete.
+func (m *Manager) Close() {
+if m.results != nil {
+_ = m.results.Close()
+}
+}
+
+// RepoScanNeeded checks if a repo needs SBOM and/or filescan, returning status + default branch.
+// This acquires the lock briefly, so callers can perform network I/O without holding it.
+func (m *Manager) RepoScanNeeded(fullName string) (needSBOM bool, needFileScan bool, defaultBranch string) {
+m.mu.Lock()
+defer m.mu.Unlock()
+
+repo, ok := m.data.Repos[fullName]
+if !ok {
+return false, false, ""
+}
+return repo.Status.SBOM == model.ScanStatusPending || repo.Status.SBOM == model.ScanStatusFailed,
+repo.Status.FileScan == model.ScanStatusPending || repo.Status.FileScan == model.ScanStatusFailed,
+repo.DefaultBranch
 }

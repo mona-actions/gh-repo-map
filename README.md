@@ -53,8 +53,8 @@ gh repo-map
 
 Authentication is resolved automatically in this priority order:
 
-1. `--token` / `-t` flag
-2. `GH_TOKEN` environment variable
+1. CLI flags (`--token` or `--app-id` + `--private-key-path`)
+2. Environment variables (`GH_TOKEN` or `GH_APP_ID` + `GH_APP_PRIVATE_KEY`)
 3. `gh auth login` (automatic if the `gh` CLI is authenticated)
 
 ### Using gh auth (Simplest)
@@ -80,7 +80,26 @@ gh repo-map --orgs-file orgs.txt
 
 ### Using a GitHub App (Recommended for Scale)
 
-Higher rate limits (5,000 req/hr) and works across multiple orgs with Enterprise Apps.
+GitHub Apps get 5,000 requests/hour **per installation** (vs 5,000 total for PATs), making them ideal for scanning thousands of repos.
+
+**Via CLI flags:**
+
+```bash
+gh repo-map \
+  --app-id 123456 \
+  --private-key-path ./my-app.pem \
+  --orgs-file orgs.txt
+```
+
+**Via environment variables:**
+
+```bash
+export GH_APP_ID=123456
+export GH_APP_PRIVATE_KEY="$(cat ./my-app.pem)"
+gh repo-map --orgs-file orgs.txt
+```
+
+**Via config file:**
 
 ```yaml
 # config.yml
@@ -90,7 +109,15 @@ auth:
   private_key_path: "./my-app.pem"
 ```
 
-**Required App permissions:** Repository contents: `read`, Metadata: `read`
+> **Note:** `GH_APP_PRIVATE_KEY` accepts the PEM content directly (not a file path), which is useful for CI/CD secrets. The `--private-key-path` flag and `auth.private_key_path` config accept a file path.
+
+**Required App permissions:** Repository contents: `read`, Metadata: `read`, Dependency graph: `read`
+
+**Setup steps:**
+1. Create a GitHub App at `https://github.com/settings/apps/new` (or your GHES instance)
+2. Set permissions: Repository → Contents: `Read-only`, Metadata: `Read-only`
+3. Generate a private key and download the `.pem` file
+4. Install the App on each organization you want to scan
 
 ## Specifying Organizations
 
@@ -140,10 +167,11 @@ See [`config.example.yml`](config.example.yml) for the full annotated config. A 
 
 ### Environment Variables
 
-| Variable | Overrides |
-|----------|-----------|
-| `GH_TOKEN` | `auth.token` / `--token` |
-| `GH_APP_PRIVATE_KEY` | `auth.private_key_path` |
+| Variable | Purpose |
+|----------|---------|
+| `GH_TOKEN` | Personal access token (alternative to `--token`) |
+| `GH_APP_ID` | GitHub App ID (alternative to `--app-id`) |
+| `GH_APP_PRIVATE_KEY` | GitHub App private key PEM **content** (alternative to `--private-key-path`) |
 
 ### Overrides File
 
@@ -154,6 +182,8 @@ Manually correct package→repo mappings when automatic detection fails. See [`o
 | Flag | Default | Description |
 |------|---------|-------------|
 | `-t`, `--token` | *(auto from gh auth)* | GitHub personal access token |
+| `--app-id` | | GitHub App ID (for App auth) |
+| `--private-key-path` | | Path to GitHub App private key `.pem` file |
 | `--orgs-file` | | Path to text file with org names (one per line) |
 | `--github-host` | `github.com` | GitHub hostname (set for GHES) |
 | `--config` | | Path to config.yml (optional) |

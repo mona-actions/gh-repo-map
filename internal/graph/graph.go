@@ -26,6 +26,9 @@ inDegree: make(map[string]int),
 
 // AddNode adds a repo node to the graph.
 func (g *Graph) AddNode(fullName string, node *model.RepoNode) {
+if node.Direct == nil {
+node.Direct = []model.DependencyEdge{}
+}
 g.Nodes[fullName] = node
 if _, ok := g.inDegree[fullName]; !ok {
 g.inDegree[fullName] = 0
@@ -253,6 +256,15 @@ return result
 }
 
 // TypeCounts returns edge counts by dependency type.
+// EdgeCount returns the total number of edges in the graph.
+func (g *Graph) EdgeCount() int {
+	count := 0
+	for _, edges := range g.adjList {
+		count += len(edges)
+	}
+	return count
+}
+
 func (g *Graph) TypeCounts() map[model.DependencyType]int {
 counts := make(map[model.DependencyType]int)
 for _, edges := range g.adjList {
