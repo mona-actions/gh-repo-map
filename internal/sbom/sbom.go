@@ -4,6 +4,7 @@ package sbom
 import (
 "context"
 "log/slog"
+"strings"
 
 "github.com/google/go-github/v84/github"
 "github.com/mona-actions/gh-repo-map/internal/auth"
@@ -11,6 +12,17 @@ import (
 "github.com/mona-actions/gh-repo-map/internal/purl"
 "github.com/mona-actions/gh-repo-map/internal/retry"
 )
+
+// extractPurlFromRefs finds the purl locator from SPDX ExternalRefs.
+// Returns "" if no PACKAGE-MANAGER purl reference exists.
+func extractPurlFromRefs(refs []*github.PackageExternalRef) string {
+for _, ref := range refs {
+if ref != nil && ref.ReferenceCategory == "PACKAGE-MANAGER" && ref.ReferenceType == "purl" {
+return ref.ReferenceLocator
+}
+}
+return ""
+}
 
 // FetchSBOM retrieves the SBOM for a repository via the Dependency Graph API.
 // Returns consumed packages and whether the SBOM was available.
@@ -53,18 +65,27 @@ if pkg.GetSPDXID() == "SPDXRef-DOCUMENT" {
 continue
 }
 
-// GitHub's SPDX packages use the name field in purl format
-// e.g., "pkg:npm/@scope/package@1.0.0"
+// Prefer the actual purl from ExternalRefs (accurate ecosystem + name).
+// Fall back to the Name field only if it's already in purl format.
+purlStr := extractPurlFromRefs(pkg.ExternalRefs)
+if purlStr == "" {
+// Some SPDX packages embed the purl directly in the Name field
 name := pkg.GetName()
-if ecosystem, pkgName := purl.ParsePurl(name); ecosystem != "" && pkgName != "" {
+if strings.HasPrefix(name, "pkg:") {
+purlStr = name
+}
+}
+
+if purlStr != "" {
+if ecosystem, pkgName := purl.ParsePurl(purlStr); ecosystem != "" && pkgName != "" {
 consumed = append(consumed, model.ConsumedPackage{
 Name:      pkgName,
 Ecosystem: ecosystem,
 Version:   pkg.GetVersionInfo(),
 })
-} else if name != "" {
-// Fallback: use name directly if not in purl format
-slog.Debug("SBOM package not in purl format", "name", name)
+}
+} else {
+slog.Debug("SBOM package has no purl", "name", pkg.GetName(), "repo", owner+"/"+repo)
 }
 }
 }

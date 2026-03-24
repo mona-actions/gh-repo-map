@@ -30,7 +30,8 @@ entries: make(map[string]string),
 // If a package is already registered to a different repo, it logs a warning (ambiguity).
 func (r *Registry) Register(repo string, identity model.PublishedIdentity) {
 canonical := purl.NormalizeManifestName(identity.Ecosystem, identity.Name)
-key := fmt.Sprintf("%s:%s", identity.Ecosystem, canonical)
+eco := purl.NormalizeEcosystem(identity.Ecosystem)
+key := fmt.Sprintf("%s:%s", eco, canonical)
 
 r.mu.Lock()
 defer r.mu.Unlock()
@@ -51,7 +52,8 @@ r.entries[key] = repo
 // Returns (repo, true) if found, ("", false) if not.
 func (r *Registry) Lookup(ecosystem, packageName string) (string, bool) {
 canonical := purl.NormalizeManifestName(ecosystem, packageName)
-key := fmt.Sprintf("%s:%s", ecosystem, canonical)
+eco := purl.NormalizeEcosystem(ecosystem)
+key := fmt.Sprintf("%s:%s", eco, canonical)
 
 r.mu.RLock()
 defer r.mu.RUnlock()
@@ -84,7 +86,8 @@ defer r.mu.Unlock()
 
 for _, o := range overrides.Overrides {
 canonical := purl.NormalizeManifestName(o.Ecosystem, o.Package)
-key := fmt.Sprintf("%s:%s", o.Ecosystem, canonical)
+eco := purl.NormalizeEcosystem(o.Ecosystem)
+key := fmt.Sprintf("%s:%s", eco, canonical)
 
 if o.Repo == nil {
 // nil repo = external, remove from registry

@@ -14,9 +14,28 @@ var goMajorVersionSuffix = regexp.MustCompile(`/v\d+$`)
 // pypiNormalize replaces hyphens, underscores, and dots with hyphens and lowercases.
 var pypiNonAlphanumeric = regexp.MustCompile(`[-_.]+`)
 
+// NormalizeEcosystem maps variant ecosystem names to a canonical purl-standard form.
+// This ensures registry keys are consistent regardless of whether the ecosystem
+// came from a manifest parser ("go") or a purl ("golang").
+func NormalizeEcosystem(eco string) string {
+switch strings.ToLower(eco) {
+case "go", "golang":
+return "golang"
+case "pip", "pypi":
+return "pypi"
+default:
+return strings.ToLower(eco)
+}
+}
+
 // ParsePurl extracts (ecosystem, canonicalName) from a purl string.
+// The input MUST be a proper purl (starting with "pkg:").
 // Example: "pkg:npm/%40org/auth-lib@2.0.0" → ("npm", "@org/auth-lib")
 func ParsePurl(purlStr string) (ecosystem, name string) {
+if !strings.HasPrefix(purlStr, "pkg:") {
+return "", ""
+}
+
 // Strip the "pkg:" prefix
 s := strings.TrimPrefix(purlStr, "pkg:")
 
@@ -32,7 +51,7 @@ parts := strings.SplitN(s, "/", 2)
 if len(parts) < 2 {
 return s, ""
 }
-ecosystem = parts[0]
+ecosystem = NormalizeEcosystem(parts[0])
 rawName := parts[1]
 
 // URL-decode the name (handles %40 → @, etc.)

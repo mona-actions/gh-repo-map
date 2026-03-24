@@ -23,9 +23,11 @@ wantRepo  string
 wantFound bool
 }{
 {"npm exact", "npm", "@org/auth-lib", "org/auth-service", true},
-{"go exact", "go", "github.com/org/go-utils", "org/go-utils", true},
+{"go via go ecosystem", "go", "github.com/org/go-utils", "org/go-utils", true},
+{"go via golang ecosystem (cross-resolve)", "golang", "github.com/org/go-utils", "org/go-utils", true},
 {"pypi normalized", "pypi", "my-tools", "org/py-tools", true},
 {"pypi original", "pypi", "My_Tools", "org/py-tools", true},
+{"pip resolves to pypi", "pip", "my-tools", "org/py-tools", true},
 {"not found", "npm", "unknown-pkg", "", false},
 }
 

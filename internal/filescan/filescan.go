@@ -93,6 +93,13 @@ func isTargetFile(path string) bool {
 base := filepath.Base(path)
 dir := filepath.Dir(path)
 
+// Skip vendored/third-party dependency directories — these are consumed,
+// not published by the repo. Their manifest files would falsely register
+// the repo as the publisher of public packages.
+if isVendoredPath(dir) {
+return false
+}
+
 if strings.Contains(dir, ".github/workflows") && (strings.HasSuffix(base, ".yml") || strings.HasSuffix(base, ".yaml")) {
 return true
 }
@@ -119,6 +126,24 @@ if strings.HasSuffix(base, ".csproj") || strings.HasSuffix(base, ".gemspec") {
 return true
 }
 
+return false
+}
+
+// isVendoredPath returns true if the path is inside a vendored dependency directory.
+// Files in these directories belong to third-party packages, not the repo itself.
+func isVendoredPath(dir string) bool {
+parts := strings.Split(dir, "/")
+for _, p := range parts {
+switch p {
+case "node_modules", // npm/yarn/pnpm
+"vendor",       // Go, PHP Composer, Ruby Bundler
+"third_party",  // common convention
+"third-party",  // common convention
+"bower_components", // Bower (legacy)
+"jspm_packages":    // jspm
+return true
+}
+}
 return false
 }
 

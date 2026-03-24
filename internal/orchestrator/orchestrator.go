@@ -69,6 +69,11 @@ tracker.EndEnumerate(enumStats)
 
 cp := cpMgr.Data()
 
+// Bail early if no repos to scan
+if len(cp.Repos) == 0 {
+return fmt.Errorf("no repositories found — check org names and token permissions")
+}
+
 if err := runPhase2(ctx, cfg, tp, cpMgr, tracker); err != nil {
 return fmt.Errorf("phase 2 (scan): %w", err)
 }
@@ -181,6 +186,9 @@ return stats, fmt.Errorf("enumerating org %q: %w", org, err)
 stats.TotalFromAPI += result.TotalFromAPI
 stats.ForksSkipped += result.ForksSkipped
 stats.EmptySkipped += result.EmptySkipped
+if len(result.Repos) == 0 {
+stats.EmptyOrgs = append(stats.EmptyOrgs, org)
+}
 tracker.OrgEnumerated(org, len(result.Repos))
 allRepos = append(allRepos, result.Repos...)
 }
@@ -644,6 +652,9 @@ return stats, fmt.Errorf("enumerating org %q: %w", org, err)
 stats.TotalFromAPI += result.TotalFromAPI
 stats.ForksSkipped += result.ForksSkipped
 stats.EmptySkipped += result.EmptySkipped
+if len(result.Repos) == 0 {
+stats.EmptyOrgs = append(stats.EmptyOrgs, org)
+}
 tracker.OrgEnumerated(org, len(result.Repos))
 allRepos = append(allRepos, result.Repos...)
 }

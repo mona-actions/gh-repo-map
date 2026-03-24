@@ -2,6 +2,37 @@ package purl
 
 import "testing"
 
+func TestNormalizeEcosystem(t *testing.T) {
+tests := []struct {
+input string
+want  string
+}{
+{"go", "golang"},
+{"Go", "golang"},
+{"golang", "golang"},
+{"GOLANG", "golang"},
+{"pip", "pypi"},
+{"PIP", "pypi"},
+{"pypi", "pypi"},
+{"npm", "npm"},
+{"maven", "maven"},
+{"nuget", "nuget"},
+{"cargo", "cargo"},
+{"gem", "gem"},
+{"composer", "composer"},
+{"unknown", "unknown"},
+}
+
+for _, tt := range tests {
+t.Run(tt.input, func(t *testing.T) {
+got := NormalizeEcosystem(tt.input)
+if got != tt.want {
+t.Errorf("NormalizeEcosystem(%q) = %q, want %q", tt.input, got, tt.want)
+}
+})
+}
+}
+
 func TestParsePurl(t *testing.T) {
 tests := []struct {
 name          string
@@ -68,6 +99,30 @@ name:          "composer package",
 input:         "pkg:composer/vendor/package@1.0",
 wantEcosystem: "composer",
 wantName:      "vendor/package",
+},
+{
+name:          "raw name without pkg prefix returns empty",
+input:         "github.com/org/repo@v1.0.0",
+wantEcosystem: "",
+wantName:      "",
+},
+{
+name:          "npm scoped raw name returns empty",
+input:         "@babel/parser@7.24.7",
+wantEcosystem: "",
+wantName:      "",
+},
+{
+name:          "golang.org path returns empty",
+input:         "golang.org/x/sys@v0.39.0",
+wantEcosystem: "",
+wantName:      "",
+},
+{
+name:          "pip ecosystem normalizes to pypi",
+input:         "pkg:pip/requests@2.31.0",
+wantEcosystem: "pypi",
+wantName:      "requests",
 },
 }
 
@@ -139,5 +194,20 @@ if purlName != manifestName {
 t.Errorf("purl %q → %q, manifest %q → %q: they don't match!",
 p.purl, purlName, p.manifest, manifestName)
 }
+}
+}
+
+func TestNormalizeEcosystemConsistency(t *testing.T) {
+// Verify that "go" from manifest parsers and "golang" from purl normalize to the same key
+goManifest := NormalizeEcosystem("go")
+goPurl := NormalizeEcosystem("golang")
+if goManifest != goPurl {
+t.Errorf("go/golang mismatch: manifest=%q, purl=%q", goManifest, goPurl)
+}
+
+pipManifest := NormalizeEcosystem("pip")
+pypiPurl := NormalizeEcosystem("pypi")
+if pipManifest != pypiPurl {
+t.Errorf("pip/pypi mismatch: manifest=%q, purl=%q", pipManifest, pypiPurl)
 }
 }

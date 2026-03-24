@@ -91,3 +91,68 @@ t.Errorf("isScriptPath(%q) = %v, want %v", tt.dir, got, tt.want)
 }
 }
 }
+
+func TestIsVendoredPath(t *testing.T) {
+tests := []struct {
+dir  string
+want bool
+}{
+{"node_modules/@babel/core", true},
+{"node_modules", true},
+{"app/node_modules/lodash", true},
+{"vendor/github.com/spf13/cobra", true},
+{"vendor", true},
+{"third_party/proto", true},
+{"third-party/lib", true},
+{"bower_components/jquery", true},
+{"jspm_packages/npm", true},
+{"src/components", false},
+{"lib/utils", false},
+{"packages/core", false},
+{".", false},
+}
+for _, tt := range tests {
+t.Run(tt.dir, func(t *testing.T) {
+got := isVendoredPath(tt.dir)
+if got != tt.want {
+t.Errorf("isVendoredPath(%q) = %v, want %v", tt.dir, got, tt.want)
+}
+})
+}
+}
+
+func TestFilterTargetFiles_ExcludesVendored(t *testing.T) {
+entries := []TreeEntry{
+{Path: "package.json", Type: "blob"},
+{Path: "node_modules/@babel/core/package.json", Type: "blob"},
+{Path: "node_modules/lodash/package.json", Type: "blob"},
+{Path: "vendor/github.com/spf13/cobra/go.mod", Type: "blob"},
+{Path: "third_party/proto/Makefile", Type: "blob"},
+{Path: "go.mod", Type: "blob"},
+{Path: "libs/core/package.json", Type: "blob"},
+// Workflows inside vendored dirs should also be excluded
+{Path: "node_modules/@github/markdownlint-github/.github/workflows/ci.yml", Type: "blob"},
+{Path: ".github/workflows/ci.yml", Type: "blob"},
+}
+
+targets := FilterTargetFiles(entries)
+
+expected := map[string]bool{
+"package.json":            true,
+"go.mod":                  true,
+"libs/core/package.json":  true,
+".github/workflows/ci.yml": true,
+}
+
+if len(targets) != len(expected) {
+t.Errorf("got %d targets, want %d", len(targets), len(expected))
+for _, f := range targets {
+t.Logf("  got: %s", f)
+}
+}
+for _, f := range targets {
+if !expected[f] {
+t.Errorf("unexpected target file (should be excluded): %s", f)
+}
+}
+}

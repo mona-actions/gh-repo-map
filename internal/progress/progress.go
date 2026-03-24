@@ -22,6 +22,7 @@ ForksSkipped int
 EmptySkipped int
 Archived     int // enumerated but won't be scanned
 Scannable    int // enumerated - archived
+EmptyOrgs    []string // orgs that returned 0 repos (likely auth issue)
 }
 
 // Tracker provides phase-level progress feedback to the user.
@@ -95,10 +96,25 @@ func (t *PtermTracker) EndEnumerate(stats EnumerateStats) {
 t.mu.Lock()
 defer t.mu.Unlock()
 if t.spinner != nil {
+if stats.Enumerated == 0 {
+t.spinner.RemoveWhenDone = true
+_ = t.spinner.Stop()
+pterm.Error.Println("No repositories found across any configured org")
+for _, org := range stats.EmptyOrgs {
+pterm.Warning.Printfln("Org %q returned 0 usable repos. Possible causes:", org)
+pterm.Println("  • Token does not have access to this org")
+pterm.Println("  • Org name is misspelled")
+pterm.Println("  • Org has no repositories (or all are forks/empty)")
+}
+} else {
 t.spinner.Success(fmt.Sprintf(
 "Enumeration complete: %d total | %d scannable (%d forks, %d archived, %d empty skipped)",
 stats.TotalFromAPI, stats.Scannable, stats.ForksSkipped, stats.Archived, stats.EmptySkipped,
 ))
+for _, org := range stats.EmptyOrgs {
+pterm.Warning.Printfln("Org %q returned 0 usable repos — verify your token has access", org)
+}
+}
 t.spinner = nil
 }
 }
@@ -155,7 +171,11 @@ msg := fmt.Sprintf("Scan complete: %d/%d repos (%d%% coverage)", scanned, total,
 if t.warnings > 0 {
 msg += fmt.Sprintf(", %d warnings", t.warnings)
 }
+if total == 0 {
+pterm.Error.Println(msg)
+} else {
 pterm.Success.Println(msg)
+}
 }
 
 func (t *PtermTracker) StartCrossRef() {
@@ -241,6 +261,9 @@ slog.Info("enumeration complete",
 "empty_skipped", stats.EmptySkipped,
 "archived", stats.Archived,
 )
+for _, org := range stats.EmptyOrgs {
+slog.Warn("org returned 0 repos — verify token has access", "org", org)
+}
 }
 
 func (t *LogTracker) StartScan(totalRepos int) {
