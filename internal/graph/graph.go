@@ -6,6 +6,7 @@ import (
 	"sort"
 
 	"github.com/mona-actions/gh-repo-map/internal/model"
+	"github.com/mona-actions/gh-repo-map/internal/output"
 )
 
 // Graph represents a directed dependency graph.
@@ -151,9 +152,9 @@ func (g *Graph) DetectCycles() [][]string {
 }
 
 // FindClusters returns connected components (migration units).
-func (g *Graph) FindClusters() []model.Cluster {
+func (g *Graph) FindClusters() []output.Cluster {
 	visited := make(map[string]bool)
-	var clusters []model.Cluster
+	var clusters []output.Cluster
 	id := 0
 
 	// Build undirected adjacency for connected components
@@ -197,7 +198,7 @@ func (g *Graph) FindClusters() []model.Cluster {
 		if len(component) > 1 {
 			sort.Strings(component)
 			id++
-			clusters = append(clusters, model.Cluster{
+			clusters = append(clusters, output.Cluster{
 				ID:    id,
 				Repos: component,
 				Size:  len(component),
@@ -226,7 +227,7 @@ func (g *Graph) FindOrphans() []string {
 }
 
 // MostDependedOn returns the top N repos by inbound dependency count.
-func (g *Graph) MostDependedOn(n int) []model.MostDependedOn {
+func (g *Graph) MostDependedOn(n int) []output.MostDependedOn {
 	type entry struct {
 		repo  string
 		count int
@@ -245,9 +246,9 @@ func (g *Graph) MostDependedOn(n int) []model.MostDependedOn {
 		n = len(entries)
 	}
 
-	result := make([]model.MostDependedOn, n)
+	result := make([]output.MostDependedOn, n)
 	for i := 0; i < n; i++ {
-		result[i] = model.MostDependedOn{
+		result[i] = output.MostDependedOn{
 			Repo:             entries[i].repo,
 			DirectDependents: entries[i].count,
 		}

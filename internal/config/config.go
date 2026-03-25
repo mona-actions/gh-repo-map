@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -15,6 +16,7 @@ type Config struct {
 	GitHubHost          string        `yaml:"github_host"`
 	Orgs                []string      `yaml:"orgs"`
 	ContainerRegistries []string      `yaml:"container_registries"`
+	Scan                ScanConfig    `yaml:"scan"`
 	Options             OptionsConfig `yaml:"options"`
 	Output              OutputConfig  `yaml:"output"`
 	OverridesPath       string        `yaml:"overrides_path"`
@@ -42,11 +44,46 @@ type OptionsConfig struct {
 	MinCoverage             int    `yaml:"min_coverage"`
 }
 
+// ScanConfig holds file scan target controls.
+type ScanConfig struct {
+	VendoredDirs []string `yaml:"vendored_dirs"`
+	ScriptDirs   []string `yaml:"script_dirs"`
+}
+
 // OutputConfig holds output file settings.
 type OutputConfig struct {
 	Path              string `yaml:"path"`
 	IncludeTransitive bool   `yaml:"include_transitive"`
 	IncludeUnresolved bool   `yaml:"include_unresolved"`
+}
+
+var (
+	defaultVendoredDirs = []string{
+		"node_modules",
+		"vendor",
+		"third_party",
+		"third-party",
+		"bower_components",
+		"jspm_packages",
+	}
+	defaultScriptDirs = []string{
+		"scripts",
+		"build",
+		"ci",
+		"hack",
+		"tools",
+		".",
+	}
+)
+
+// DefaultVendoredDirs returns a copy of default vendored directory names.
+func DefaultVendoredDirs() []string {
+	return append([]string(nil), defaultVendoredDirs...)
+}
+
+// DefaultScriptDirs returns a copy of default script directory names.
+func DefaultScriptDirs() []string {
+	return append([]string(nil), defaultScriptDirs...)
 }
 
 // applyDefaults fills in zero-value fields with sensible defaults.
@@ -80,6 +117,16 @@ func ApplyDefaults(cfg *Config) {
 	if cfg.Options.TreeFallbackRecursive == false && cfg.Options.GraphQLBatchSize == 15 {
 		cfg.Options.TreeFallbackRecursive = true
 	}
+
+	cfg.Scan.VendoredDirs = normalizeList(cfg.Scan.VendoredDirs)
+	if len(cfg.Scan.VendoredDirs) == 0 {
+		cfg.Scan.VendoredDirs = DefaultVendoredDirs()
+	}
+
+	cfg.Scan.ScriptDirs = normalizeList(cfg.Scan.ScriptDirs)
+	if len(cfg.Scan.ScriptDirs) == 0 {
+		cfg.Scan.ScriptDirs = DefaultScriptDirs()
+	}
 }
 
 // applyEnvOverrides checks environment variables for secret overrides.
@@ -101,6 +148,44 @@ func applyEnvOverrides(cfg *Config) {
 			}
 		}
 	}
+
+	if vendored := parseCSVEnv("REPO_MAP_VENDORED_DIRS"); len(vendored) > 0 {
+		cfg.Scan.VendoredDirs = mergeDedup(cfg.Scan.VendoredDirs, vendored)
+	}
+	if scripts := parseCSVEnv("REPO_MAP_SCRIPT_DIRS"); len(scripts) > 0 {
+		cfg.Scan.ScriptDirs = mergeDedup(cfg.Scan.ScriptDirs, scripts)
+	}
+}
+
+func parseCSVEnv(name string) []string {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return nil
+	}
+	return normalizeList(strings.Split(raw, ","))
+}
+
+func mergeDedup(base []string, extras []string) []string {
+	combined := append([]string(nil), base...)
+	combined = append(combined, extras...)
+	return normalizeList(combined)
+}
+
+func normalizeList(items []string) []string {
+	seen := make(map[string]struct{}, len(items))
+	normalized := make([]string, 0, len(items))
+	for _, item := range items {
+		trimmed := strings.TrimSpace(item)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		normalized = append(normalized, trimmed)
+	}
+	return normalized
 }
 
 // Validate checks that the config is internally consistent and complete.

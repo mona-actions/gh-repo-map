@@ -20,6 +20,32 @@ import (
 
 const version = "0.1.0"
 
+type cliOptions struct {
+	ConfigPath        string
+	GitHubHost        string
+	Token             string
+	AppID             int64
+	PrivateKeyPath    string
+	OrgsFile          string
+	DryRun            bool
+	Resume            bool
+	IncludeTransitive bool
+	Anonymize         bool
+	CleanCheckpoints  bool
+	ShowStatus        bool
+	SplitThreshold    int
+	Concurrency       int
+	MinCoverage       int
+	LogLevel          string
+}
+
+type configLoader func(path string) (*config.Config, error)
+type orgsFileReader func(path string) ([]string, error)
+type warningPrinter func(format string, args ...any)
+type tokenProviderFactory func(authType, token string, appID int64, privateKeyPath, host string) (auth.TokenProvider, error)
+type ptermTrackerFactory func() *progress.PtermTracker
+type logTrackerFactory func() *progress.LogTracker
+
 var (
 	cfgPath           string
 	githubHost        string
@@ -37,7 +63,6 @@ var (
 	concurrency       int
 	minCoverage       int
 	logLevel          string
-	logFile           string
 )
 
 var rootCmd = &cobra.Command{
@@ -85,7 +110,6 @@ func init() {
 
 	// Output
 	rootCmd.Flags().StringVar(&logLevel, "log-level", "", "Log level: quiet|default|verbose|debug")
-	rootCmd.Flags().StringVar(&logFile, "log-file", "", "Write logs to file")
 }
 
 // Execute is the CLI entrypoint called from main.
@@ -94,22 +118,27 @@ func Execute() error {
 }
 
 func run(cmd *cobra.Command, args []string) error {
+	_ = cmd
+	_ = args
+
 	fmt.Fprintf(os.Stderr, "gh-repo-map v%s\n", version)
 
-	// Load config: file-based or flag-based
-	cfg, err := loadConfig()
+	opts := currentCLIOptions()
+	cfg, err := loadConfigWithFallback(opts.ConfigPath, "./config.yml", config.Load, fileExists)
 	if err != nil {
 		return err
 	}
 
-	applyCLIOverrides(cfg)
+	applyCLIOverrides(cfg, opts, readOrgsFile, func(format string, args ...any) {
+		fmt.Fprintf(os.Stderr, format, args...)
+	})
 
 	// --status: read checkpoint and print progress summary, then exit
-	if showStatus {
+	if opts.ShowStatus {
 		return printStatus(cfg)
 	}
 
-	if err := config.Validate(cfg, resume); err != nil {
+	if err := config.Validate(cfg, opts.Resume); err != nil {
 		return fmt.Errorf("invalid configuration: %w", err)
 	}
 
@@ -120,85 +149,100 @@ func run(cmd *cobra.Command, args []string) error {
 	fmt.Fprintf(os.Stderr, "Target: %s | Orgs: %d | Concurrency: %d\n",
 		host, len(cfg.Orgs), cfg.Options.Concurrency)
 
-	tp, err := auth.NewTokenProvider(cfg.Auth.Type, cfg.Auth.Token, cfg.Auth.AppID, cfg.Auth.PrivateKeyPath, cfg.GitHubHost)
+	tp, err := buildTokenProvider(cfg, auth.NewTokenProvider)
 	if err != nil {
 		return fmt.Errorf("initializing auth: %w", err)
 	}
 
-	// Use interactive progress for default/quiet modes, log-based for verbose/debug
-	var tracker progress.Tracker
-	switch cfg.Options.LogLevel {
-	case "verbose", "debug":
-		tracker = progress.NewLogTracker()
-	default:
-		tracker = progress.NewPtermTracker()
-	}
+	tracker := selectTracker(cfg.Options.LogLevel, progress.NewPtermTracker, progress.NewLogTracker)
 
 	ctx := context.Background()
-
-	if dryRun {
+	if opts.DryRun {
 		return orchestrator.DryRun(ctx, cfg, tp, tracker)
 	}
 
-	return orchestrator.Run(ctx, cfg, tp, tracker, resume, includeTransitive, cleanCheckpoints, splitThreshold)
+	return orchestrator.Run(ctx, cfg, tp, tracker, opts.Resume, opts.IncludeTransitive, opts.CleanCheckpoints, opts.SplitThreshold)
 }
 
-// loadConfig builds a Config from file and/or CLI flags.
-func loadConfig() (*config.Config, error) {
-	// If a config file is specified (or exists at default path), load it
-	if cfgPath != "" {
-		cfg, err := config.Load(cfgPath)
+func currentCLIOptions() cliOptions {
+	return cliOptions{
+		ConfigPath:        cfgPath,
+		GitHubHost:        githubHost,
+		Token:             token,
+		AppID:             appID,
+		PrivateKeyPath:    privateKeyPath,
+		OrgsFile:          orgsFile,
+		DryRun:            dryRun,
+		Resume:            resume,
+		IncludeTransitive: includeTransitive,
+		Anonymize:         anonymize,
+		CleanCheckpoints:  cleanCheckpoints,
+		ShowStatus:        showStatus,
+		SplitThreshold:    splitThreshold,
+		Concurrency:       concurrency,
+		MinCoverage:       minCoverage,
+		LogLevel:          logLevel,
+	}
+}
+
+// loadConfigWithFallback builds a Config from file and/or CLI flags.
+func loadConfigWithFallback(explicitPath, defaultPath string, loadFn configLoader, existsFn func(string) bool) (*config.Config, error) {
+	if explicitPath != "" {
+		cfg, err := loadFn(explicitPath)
 		if err != nil {
 			return nil, fmt.Errorf("loading config: %w", err)
 		}
 		return cfg, nil
 	}
 
-	// Try default path, but don't error if it doesn't exist
-	if _, err := os.Stat("./config.yml"); err == nil {
-		cfg, err := config.Load("./config.yml")
+	if existsFn(defaultPath) {
+		cfg, err := loadFn(defaultPath)
 		if err != nil {
-			return nil, fmt.Errorf("loading config.yml: %w", err)
+			return nil, fmt.Errorf("loading %s: %w", defaultPath, err)
 		}
 		return cfg, nil
 	}
 
-	// No config file — build from flags only
 	cfg := &config.Config{}
 	config.ApplyDefaults(cfg)
 	return cfg, nil
 }
 
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
 // applyCLIOverrides applies CLI flag values onto the loaded config.
 // Flags always take precedence over config file values.
-func applyCLIOverrides(cfg *config.Config) {
+func applyCLIOverrides(cfg *config.Config, opts cliOptions, readOrgsFn orgsFileReader, warn warningPrinter) {
 	// Auth: --token flag > GH_TOKEN env > config file > gh auth login
-	if token != "" {
-		cfg.Auth.Token = token
+	if opts.Token != "" {
+		cfg.Auth.Token = opts.Token
 		cfg.Auth.Type = "pat"
 	}
 
 	// GitHub App flags override config file app settings
-	if appID > 0 {
-		cfg.Auth.AppID = appID
+	if opts.AppID > 0 {
+		cfg.Auth.AppID = opts.AppID
 		cfg.Auth.Type = "github-app"
 	}
-	if privateKeyPath != "" {
-		cfg.Auth.PrivateKeyPath = privateKeyPath
+	if opts.PrivateKeyPath != "" {
+		cfg.Auth.PrivateKeyPath = opts.PrivateKeyPath
 		if cfg.Auth.AppID > 0 {
 			cfg.Auth.Type = "github-app"
 		}
 	}
 
-	if githubHost != "" {
-		cfg.GitHubHost = githubHost
+	if opts.GitHubHost != "" {
+		cfg.GitHubHost = opts.GitHubHost
 	}
 
 	// Orgs: --orgs-file appends to config orgs
-	if orgsFile != "" {
-		fileOrgs, err := readOrgsFile(orgsFile)
+	if opts.OrgsFile != "" {
+		fileOrgs, err := readOrgsFn(opts.OrgsFile)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to read orgs file: %v\n", err)
+			warn("Warning: failed to read orgs file: %v\n", err)
 		} else {
 			cfg.Orgs = append(cfg.Orgs, fileOrgs...)
 		}
@@ -207,20 +251,30 @@ func applyCLIOverrides(cfg *config.Config) {
 	// Deduplicate orgs
 	cfg.Orgs = dedup(cfg.Orgs)
 
-	if includeTransitive {
+	if opts.IncludeTransitive {
 		cfg.Output.IncludeTransitive = true
 	}
-	if concurrency > 0 {
-		cfg.Options.Concurrency = concurrency
+	if opts.Concurrency > 0 {
+		cfg.Options.Concurrency = opts.Concurrency
 	}
-	if minCoverage > 0 {
-		cfg.Options.MinCoverage = minCoverage
+	if opts.MinCoverage > 0 {
+		cfg.Options.MinCoverage = opts.MinCoverage
 	}
-	if logLevel != "" {
-		cfg.Options.LogLevel = logLevel
+	if opts.LogLevel != "" {
+		cfg.Options.LogLevel = opts.LogLevel
 	}
-	if logFile != "" {
-		cfg.Options.LogFile = logFile
+}
+
+func buildTokenProvider(cfg *config.Config, factory tokenProviderFactory) (auth.TokenProvider, error) {
+	return factory(cfg.Auth.Type, cfg.Auth.Token, cfg.Auth.AppID, cfg.Auth.PrivateKeyPath, cfg.GitHubHost)
+}
+
+func selectTracker(logLevel string, ptermFactory ptermTrackerFactory, logFactory logTrackerFactory) progress.Tracker {
+	switch logLevel {
+	case "verbose", "debug":
+		return logFactory()
+	default:
+		return ptermFactory()
 	}
 }
 

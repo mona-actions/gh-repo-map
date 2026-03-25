@@ -43,6 +43,34 @@ container_registries:
 # See overrides.example.yml for the format.
 # overrides_path: "./overrides.yml"
 
+# ─── File Scan Targets ──────────────────────────────────────────────────────
+scan:
+  # Directory names treated as vendored third-party code and excluded from file scan.
+  # Defaults:
+  # - node_modules
+  # - vendor
+  # - third_party
+  # - third-party
+  # - bower_components
+  # - jspm_packages
+  # vendored_dirs:
+  #   - "node_modules"
+  #   - "vendor"
+  #   - "third_party"
+  #   - "third-party"
+  #   - "bower_components"
+  #   - "jspm_packages"
+
+  # Directory names where *.sh files are considered target build scripts.
+  # Defaults: scripts, build, ci, hack, tools, .
+  # script_dirs:
+  #   - "scripts"
+  #   - "build"
+  #   - "ci"
+  #   - "hack"
+  #   - "tools"
+  #   - "."
+
 # ─── Scan Options ───────────────────────────────────────────────────────────
 options:
   # Include forked repos in the scan (default: false)

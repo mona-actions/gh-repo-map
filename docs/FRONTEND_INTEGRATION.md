@@ -90,6 +90,7 @@ The core data structure. A map of `"org/repo-name"` → `RepoNode`.
           "target_scanned": true,
           "source_file": "package.json",
           "detail": {
+            "type": "package",
             "package_name": "@my-org/shared-lib",
             "ecosystem": "npm",
             "version": "^2.0.0"
@@ -102,6 +103,7 @@ The core data structure. A map of `"org/repo-name"` → `RepoNode`.
           "target_scanned": true,
           "source_file": ".github/workflows/ci.yml",
           "detail": {
+            "type": "workflow",
             "uses": "my-org/ci-workflows/.github/workflows/build.yml@main"
           }
         }

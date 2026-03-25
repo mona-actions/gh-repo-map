@@ -40,6 +40,12 @@ const (
 
 // --- Edge Detail Types (Section 0.6 — each type has a fixed shape) ---
 
+// EdgeDetail is the sealed interface implemented by all dependency edge detail shapes.
+// The unexported marker method prevents implementations outside this package.
+type EdgeDetail interface {
+	edgeDetail()
+}
+
 // PackageDetail holds detail for type=package edges.
 type PackageDetail struct {
 	Type        DependencyType `json:"type"`
@@ -87,24 +93,83 @@ type ScriptDetail struct {
 	MatchType string         `json:"match_type"` // git_clone, curl, wget, go_install, pip_git
 }
 
+type unknownEdgeDetail map[string]json.RawMessage
+
+func (PackageDetail) edgeDetail()     {}
+func (WorkflowDetail) edgeDetail()    {}
+func (ActionDetail) edgeDetail()      {}
+func (SubmoduleDetail) edgeDetail()   {}
+func (DockerDetail) edgeDetail()      {}
+func (TerraformDetail) edgeDetail()   {}
+func (ScriptDetail) edgeDetail()      {}
+func (unknownEdgeDetail) edgeDetail() {}
+
 // DependencyEdge represents a single dependency from one repo to another.
 type DependencyEdge struct {
 	Repo          string         `json:"repo"`
 	Type          DependencyType `json:"type"`
 	Confidence    Confidence     `json:"confidence"`
 	TargetScanned bool           `json:"target_scanned"`
-	Detail        interface{}    `json:"detail"`
+	Detail        EdgeDetail     `json:"detail"`
 	SourceFile    string         `json:"source_file"`
 }
 
 // MarshalJSON ensures Detail is never null and always has a type discriminator.
 func (e DependencyEdge) MarshalJSON() ([]byte, error) {
-	type Alias DependencyEdge
-	a := Alias(e)
-	if a.Detail == nil {
-		a.Detail = map[string]interface{}{"type": string(a.Type)}
+	type dependencyEdgeJSON struct {
+		Repo          string          `json:"repo"`
+		Type          DependencyType  `json:"type"`
+		Confidence    Confidence      `json:"confidence"`
+		TargetScanned bool            `json:"target_scanned"`
+		Detail        json.RawMessage `json:"detail"`
+		SourceFile    string          `json:"source_file"`
 	}
-	return json.Marshal(a)
+
+	detail, err := marshalEdgeDetail(e.Type, e.Detail, true)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(dependencyEdgeJSON{
+		Repo:          e.Repo,
+		Type:          e.Type,
+		Confidence:    e.Confidence,
+		TargetScanned: e.TargetScanned,
+		Detail:        detail,
+		SourceFile:    e.SourceFile,
+	})
+}
+
+// UnmarshalJSON decodes detail into a concrete EdgeDetail based on discriminator.
+func (e *DependencyEdge) UnmarshalJSON(data []byte) error {
+	type dependencyEdgeJSON struct {
+		Repo          string          `json:"repo"`
+		Type          DependencyType  `json:"type"`
+		Confidence    Confidence      `json:"confidence"`
+		TargetScanned bool            `json:"target_scanned"`
+		Detail        json.RawMessage `json:"detail"`
+		SourceFile    string          `json:"source_file"`
+	}
+
+	var raw dependencyEdgeJSON
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	detail, err := unmarshalEdgeDetail(raw.Type, raw.Detail, true)
+	if err != nil {
+		return err
+	}
+
+	*e = DependencyEdge{
+		Repo:          raw.Repo,
+		Type:          raw.Type,
+		Confidence:    raw.Confidence,
+		TargetScanned: raw.TargetScanned,
+		Detail:        detail,
+		SourceFile:    raw.SourceFile,
+	}
+	return nil
 }
 
 // TransitiveDep represents a transitive dependency.
@@ -153,14 +218,7 @@ type PublishedIdentity struct {
 	Ecosystem string `json:"ecosystem"`
 }
 
-// --- Checkpoint types (Section 1.3) ---
-
-// CheckpointRepoStatus tracks per-phase scan status for a repo.
-type CheckpointRepoStatus struct {
-	Enumerate ScanStatus `json:"enumerate"`
-	SBOM      ScanStatus `json:"sbom"`
-	FileScan  ScanStatus `json:"filescan"`
-}
+// --- Checkpoint data types (Section 1.3) ---
 
 // SBOMData holds the collected SBOM data for a repo.
 type SBOMData struct {
@@ -174,7 +232,57 @@ type FileScanEdge struct {
 	Target     string         `json:"target"`
 	Type       DependencyType `json:"type"`
 	SourceFile string         `json:"source_file"`
-	Detail     interface{}    `json:"detail,omitempty"`
+	Detail     EdgeDetail     `json:"detail,omitempty"`
+}
+
+// MarshalJSON ensures detail discriminator is stable when detail is present.
+func (e FileScanEdge) MarshalJSON() ([]byte, error) {
+	type fileScanEdgeJSON struct {
+		Target     string          `json:"target"`
+		Type       DependencyType  `json:"type"`
+		SourceFile string          `json:"source_file"`
+		Detail     json.RawMessage `json:"detail,omitempty"`
+	}
+
+	detail, err := marshalEdgeDetail(e.Type, e.Detail, false)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(fileScanEdgeJSON{
+		Target:     e.Target,
+		Type:       e.Type,
+		SourceFile: e.SourceFile,
+		Detail:     detail,
+	})
+}
+
+// UnmarshalJSON decodes detail into a concrete EdgeDetail based on discriminator.
+func (e *FileScanEdge) UnmarshalJSON(data []byte) error {
+	type fileScanEdgeJSON struct {
+		Target     string          `json:"target"`
+		Type       DependencyType  `json:"type"`
+		SourceFile string          `json:"source_file"`
+		Detail     json.RawMessage `json:"detail"`
+	}
+
+	var raw fileScanEdgeJSON
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	detail, err := unmarshalEdgeDetail(raw.Type, raw.Detail, false)
+	if err != nil {
+		return err
+	}
+
+	*e = FileScanEdge{
+		Target:     raw.Target,
+		Type:       raw.Type,
+		SourceFile: raw.SourceFile,
+		Detail:     detail,
+	}
+	return nil
 }
 
 // FileScanData holds the collected file scan data for a repo.
@@ -186,100 +294,39 @@ type FileScanData struct {
 	ManifestConsumed []ConsumedPackage `json:"manifest_consumed,omitempty"`
 }
 
-// CheckpointRepo holds all state for a single repo in the checkpoint.
-// In v2, SBOMData and FileScanData are stored in results.ndjson instead.
-// These fields exist only for v1 migration compatibility (omitempty ensures they're not written when nil).
-type CheckpointRepo struct {
-	Status        CheckpointRepoStatus `json:"status"`
-	Archived      bool                 `json:"archived"`
-	ForkOf        *string              `json:"fork_of"`
-	TemplateFrom  *string              `json:"template_from"`
-	DefaultBranch string               `json:"default_branch"`
-	SBOMData      *SBOMData            `json:"sbom_data,omitempty"`
-	FileScanData  *FileScanData        `json:"filescan_data,omitempty"`
+type checkpointRepoStatusWire struct {
+	Enumerate ScanStatus `json:"enumerate"`
+	SBOM      ScanStatus `json:"sbom"`
+	FileScan  ScanStatus `json:"filescan"`
 }
 
-// CheckpointStats holds aggregate scan statistics.
-type CheckpointStats struct {
+type checkpointRepoWire struct {
+	Status        checkpointRepoStatusWire `json:"status"`
+	Archived      bool                     `json:"archived"`
+	ForkOf        *string                  `json:"fork_of"`
+	TemplateFrom  *string                  `json:"template_from"`
+	DefaultBranch string                   `json:"default_branch"`
+	SBOMData      *SBOMData                `json:"sbom_data,omitempty"`
+	FileScanData  *FileScanData            `json:"filescan_data,omitempty"`
+}
+
+type checkpointStatsWire struct {
 	Total     int            `json:"total"`
 	Completed map[string]int `json:"completed"`
 	Failed    map[string]int `json:"failed"`
 	Skipped   map[string]int `json:"skipped"`
 }
 
-// Checkpoint is the unified checkpoint file that persists all scan state.
+// Checkpoint is the wire format used by cmd --status.
 type Checkpoint struct {
-	Version      string                     `json:"version"`
-	Generation   int                        `json:"generation"`
-	StartedAt    time.Time                  `json:"started_at"`
-	GitHubHost   string                     `json:"github_host"`
-	Orgs         []string                   `json:"orgs"`
-	CurrentPhase string                     `json:"current_phase"`
-	Repos        map[string]*CheckpointRepo `json:"repos"`
-	Stats        CheckpointStats            `json:"stats"`
-}
-
-// --- Output schema types (Section 0.8) ---
-
-// SplitInfo describes the chunking strategy for split output files.
-type SplitInfo struct {
-	Mode         string   `json:"mode"`
-	FileIndex    int      `json:"file_index"`
-	TotalFiles   int      `json:"total_files"`
-	ThisFileOrgs []string `json:"this_file_orgs"`
-}
-
-// OutputMetadata holds scan context and timing for the output file.
-type OutputMetadata struct {
-	GeneratedAt       time.Time `json:"generated_at"`
-	ToolVersion       string    `json:"tool_version"`
-	GitHubHost        string    `json:"github_host"`
-	OrgsScanned       []string  `json:"orgs_scanned"`
-	TotalRepos        int       `json:"total_repos"`
-	TotalReposScanned int       `json:"total_repos_scanned"`
-	TotalReposSkipped int       `json:"total_repos_skipped"`
-	TotalEdges        int       `json:"total_edges"`
-	ScanDurationSecs  float64   `json:"scan_duration_seconds"`
-	SplitInfo         SplitInfo `json:"split_info"`
-}
-
-// UnresolvedPackage represents a package that couldn't be mapped to a repo.
-type UnresolvedPackage struct {
-	PackageName string `json:"package_name"`
-	Ecosystem   string `json:"ecosystem"`
-	Version     string `json:"version"`
-	Reason      string `json:"reason"`
-}
-
-// MostDependedOn summarizes the most-depended-upon repos.
-type MostDependedOn struct {
-	Repo             string `json:"repo"`
-	DirectDependents int    `json:"direct_dependents"`
-}
-
-// Cluster represents a connected component of mutually-dependent repos.
-type Cluster struct {
-	ID    int      `json:"id"`
-	Repos []string `json:"repos"`
-	Size  int      `json:"size"`
-}
-
-// OutputStats holds aggregated statistics for the output.
-type OutputStats struct {
-	MostDependedOn       []MostDependedOn       `json:"most_depended_on"`
-	DependencyTypeCounts map[DependencyType]int `json:"dependency_type_counts"`
-	Clusters             []Cluster              `json:"clusters"`
-	CircularDeps         [][]string             `json:"circular_deps"`
-	OrphanRepos          []string               `json:"orphan_repos"`
-}
-
-// OutputSchema is the top-level JSON output structure (CLI ↔ Frontend contract).
-type OutputSchema struct {
-	SchemaVersion string                         `json:"schema_version"`
-	Metadata      OutputMetadata                 `json:"metadata"`
-	Graph         map[string]*RepoNode           `json:"graph"`
-	Unresolved    map[string][]UnresolvedPackage `json:"unresolved"`
-	Stats         OutputStats                    `json:"stats"`
+	Version      string                         `json:"version"`
+	Generation   int                            `json:"generation"`
+	StartedAt    time.Time                      `json:"started_at"`
+	GitHubHost   string                         `json:"github_host"`
+	Orgs         []string                       `json:"orgs"`
+	CurrentPhase string                         `json:"current_phase"`
+	Repos        map[string]*checkpointRepoWire `json:"repos"`
+	Stats        checkpointStatsWire            `json:"stats"`
 }
 
 // --- Override types (Section 0.7) ---
@@ -309,4 +356,215 @@ type EnumeratedRepo struct {
 	Size          int     `json:"size"` // in KB
 	ForkOf        *string `json:"fork_of"`
 	TemplateFrom  *string `json:"template_from"`
+}
+
+func marshalEdgeDetail(depType DependencyType, detail EdgeDetail, forceTypeWhenNil bool) (json.RawMessage, error) {
+	if detail == nil {
+		if !forceTypeWhenNil {
+			return nil, nil
+		}
+		if depType == "" {
+			return json.RawMessage(`{}`), nil
+		}
+		return json.Marshal(map[string]DependencyType{"type": depType})
+	}
+
+	raw, err := json.Marshal(detail)
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) == 0 || string(raw) == "null" {
+		if !forceTypeWhenNil {
+			return nil, nil
+		}
+		if depType == "" {
+			return json.RawMessage(`{}`), nil
+		}
+		return json.Marshal(map[string]DependencyType{"type": depType})
+	}
+
+	var detailMap map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &detailMap); err != nil {
+		return nil, err
+	}
+	if detailMap == nil {
+		detailMap = make(map[string]json.RawMessage)
+	}
+
+	discriminator := depType
+	if discriminator == "" {
+		discriminator = edgeDetailType(detail)
+	}
+	if discriminator != "" {
+		typeRaw, err := json.Marshal(discriminator)
+		if err != nil {
+			return nil, err
+		}
+		detailMap["type"] = typeRaw
+	}
+
+	return json.Marshal(detailMap)
+}
+
+func unmarshalEdgeDetail(fallbackType DependencyType, raw json.RawMessage, synthesizeWhenNil bool) (EdgeDetail, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		if synthesizeWhenNil {
+			return defaultEdgeDetail(fallbackType), nil
+		}
+		return nil, nil
+	}
+
+	var detailMap map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &detailMap); err != nil {
+		return nil, err
+	}
+	if detailMap == nil {
+		detailMap = make(map[string]json.RawMessage)
+	}
+
+	depType := fallbackType
+	if typeRaw, ok := detailMap["type"]; ok {
+		var parsed DependencyType
+		if err := json.Unmarshal(typeRaw, &parsed); err == nil && parsed != "" {
+			depType = parsed
+		}
+	}
+
+	if depType != "" {
+		typeRaw, err := json.Marshal(depType)
+		if err != nil {
+			return nil, err
+		}
+		detailMap["type"] = typeRaw
+	}
+
+	detailPtr := newEdgeDetailPtr(depType)
+	if detailPtr == nil {
+		if len(detailMap) == 0 {
+			return nil, nil
+		}
+		return unknownEdgeDetail(detailMap), nil
+	}
+
+	normalized, err := json.Marshal(detailMap)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := json.Unmarshal(normalized, detailPtr); err != nil {
+		return nil, err
+	}
+
+	return edgeDetailFromPtr(detailPtr), nil
+}
+
+func defaultEdgeDetail(depType DependencyType) EdgeDetail {
+	detailPtr := newEdgeDetailPtr(depType)
+	if detailPtr != nil {
+		return edgeDetailFromPtr(detailPtr)
+	}
+	if depType == "" {
+		return nil
+	}
+	typeRaw, _ := json.Marshal(depType)
+	return unknownEdgeDetail{
+		"type": typeRaw,
+	}
+}
+
+func newEdgeDetailPtr(depType DependencyType) interface{} {
+	switch depType {
+	case DepTypePackage:
+		return &PackageDetail{Type: depType}
+	case DepTypeWorkflow:
+		return &WorkflowDetail{Type: depType}
+	case DepTypeAction:
+		return &ActionDetail{Type: depType}
+	case DepTypeSubmodule:
+		return &SubmoduleDetail{Type: depType}
+	case DepTypeDocker:
+		return &DockerDetail{Type: depType}
+	case DepTypeTerraform:
+		return &TerraformDetail{Type: depType}
+	case DepTypeScript:
+		return &ScriptDetail{Type: depType}
+	default:
+		return nil
+	}
+}
+
+func edgeDetailFromPtr(detail interface{}) EdgeDetail {
+	switch d := detail.(type) {
+	case *PackageDetail:
+		return *d
+	case *WorkflowDetail:
+		return *d
+	case *ActionDetail:
+		return *d
+	case *SubmoduleDetail:
+		return *d
+	case *DockerDetail:
+		return *d
+	case *TerraformDetail:
+		return *d
+	case *ScriptDetail:
+		return *d
+	default:
+		return nil
+	}
+}
+
+func edgeDetailType(detail EdgeDetail) DependencyType {
+	switch d := detail.(type) {
+	case PackageDetail:
+		return d.Type
+	case *PackageDetail:
+		if d != nil {
+			return d.Type
+		}
+	case WorkflowDetail:
+		return d.Type
+	case *WorkflowDetail:
+		if d != nil {
+			return d.Type
+		}
+	case ActionDetail:
+		return d.Type
+	case *ActionDetail:
+		if d != nil {
+			return d.Type
+		}
+	case SubmoduleDetail:
+		return d.Type
+	case *SubmoduleDetail:
+		if d != nil {
+			return d.Type
+		}
+	case DockerDetail:
+		return d.Type
+	case *DockerDetail:
+		if d != nil {
+			return d.Type
+		}
+	case TerraformDetail:
+		return d.Type
+	case *TerraformDetail:
+		if d != nil {
+			return d.Type
+		}
+	case ScriptDetail:
+		return d.Type
+	case *ScriptDetail:
+		if d != nil {
+			return d.Type
+		}
+	case unknownEdgeDetail:
+		if typeRaw, ok := d["type"]; ok {
+			var depType DependencyType
+			if err := json.Unmarshal(typeRaw, &depType); err == nil {
+				return depType
+			}
+		}
+	}
+	return ""
 }

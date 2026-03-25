@@ -172,6 +172,17 @@ See [`config.example.yml`](config.example.yml) for the full annotated config. A 
 | `GH_TOKEN` | Personal access token (alternative to `--token`) |
 | `GH_APP_ID` | GitHub App ID (alternative to `--app-id`) |
 | `GH_APP_PRIVATE_KEY` | GitHub App private key PEM **content** (alternative to `--private-key-path`) |
+| `REPO_MAP_VENDORED_DIRS` | Extra vendored directory names for file scan (comma-separated, appended/deduped) |
+| `REPO_MAP_SCRIPT_DIRS` | Extra script directory names for `*.sh` detection (comma-separated, appended/deduped) |
+
+### File Scan Target Directories
+
+Use the top-level `scan` config section to control directory matching for file scan:
+
+- `scan.vendored_dirs` — directory names excluded as vendored third-party code
+- `scan.script_dirs` — directory names where `*.sh` files are treated as build/script targets
+
+If omitted, defaults match the built-in behavior. `REPO_MAP_VENDORED_DIRS` and `REPO_MAP_SCRIPT_DIRS` append to configured values and remove duplicates.
 
 ### Overrides File
 

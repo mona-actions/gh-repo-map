@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -62,6 +63,12 @@ orgs:
 	}
 	if cfg.Options.LogLevel != "default" {
 		t.Errorf("log_level = %q, want %q", cfg.Options.LogLevel, "default")
+	}
+	if !reflect.DeepEqual(cfg.Scan.VendoredDirs, DefaultVendoredDirs()) {
+		t.Errorf("vendored_dirs = %v, want %v", cfg.Scan.VendoredDirs, DefaultVendoredDirs())
+	}
+	if !reflect.DeepEqual(cfg.Scan.ScriptDirs, DefaultScriptDirs()) {
+		t.Errorf("script_dirs = %v, want %v", cfg.Scan.ScriptDirs, DefaultScriptDirs())
 	}
 }
 
@@ -150,6 +157,67 @@ orgs:
 	}
 	if cfg.Auth.Token != "ghp_env_token" {
 		t.Errorf("token = %q, want %q", cfg.Auth.Token, "ghp_env_token")
+	}
+}
+
+func TestScanEnvOverrideMergesWithDefaults(t *testing.T) {
+	t.Setenv("REPO_MAP_VENDORED_DIRS", " custom_vendor, node_modules, vendor ")
+	t.Setenv("REPO_MAP_SCRIPT_DIRS", " custom_scripts, tools ")
+
+	path := writeTestConfig(t, `
+auth:
+  type: "pat"
+orgs:
+  - "org1"
+`)
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	wantVendored := append(DefaultVendoredDirs(), "custom_vendor")
+	if !reflect.DeepEqual(cfg.Scan.VendoredDirs, wantVendored) {
+		t.Errorf("vendored_dirs = %v, want %v", cfg.Scan.VendoredDirs, wantVendored)
+	}
+
+	wantScripts := append(DefaultScriptDirs(), "custom_scripts")
+	if !reflect.DeepEqual(cfg.Scan.ScriptDirs, wantScripts) {
+		t.Errorf("script_dirs = %v, want %v", cfg.Scan.ScriptDirs, wantScripts)
+	}
+}
+
+func TestScanEnvOverrideMergesWithConfiguredValues(t *testing.T) {
+	t.Setenv("REPO_MAP_VENDORED_DIRS", "third_party, extras, deps")
+	t.Setenv("REPO_MAP_SCRIPT_DIRS", "scripts, ops, bin")
+
+	path := writeTestConfig(t, `
+auth:
+  type: "pat"
+orgs:
+  - "org1"
+scan:
+  vendored_dirs:
+    - "vendor"
+    - "deps"
+  script_dirs:
+    - "bin"
+    - "."
+`)
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	wantVendored := []string{"vendor", "deps", "third_party", "extras"}
+	if !reflect.DeepEqual(cfg.Scan.VendoredDirs, wantVendored) {
+		t.Errorf("vendored_dirs = %v, want %v", cfg.Scan.VendoredDirs, wantVendored)
+	}
+
+	wantScripts := []string{"bin", ".", "scripts", "ops"}
+	if !reflect.DeepEqual(cfg.Scan.ScriptDirs, wantScripts) {
+		t.Errorf("script_dirs = %v, want %v", cfg.Scan.ScriptDirs, wantScripts)
 	}
 }
 

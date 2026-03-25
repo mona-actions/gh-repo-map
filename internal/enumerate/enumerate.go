@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/go-github/v84/github"
 	"github.com/mona-actions/gh-repo-map/internal/auth"
+	"github.com/mona-actions/gh-repo-map/internal/checkpoint"
 	"github.com/mona-actions/gh-repo-map/internal/model"
 	"github.com/mona-actions/gh-repo-map/internal/retry"
 )
@@ -94,10 +95,10 @@ func EnumerateOrg(ctx context.Context, tp auth.TokenProvider, org string, includ
 }
 
 // BuildCheckpointRepos converts enumerated repos into checkpoint entries.
-func BuildCheckpointRepos(repos []model.EnumeratedRepo) map[string]*model.CheckpointRepo {
-	result := make(map[string]*model.CheckpointRepo, len(repos))
+func BuildCheckpointRepos(repos []model.EnumeratedRepo) map[string]*checkpoint.CheckpointRepo {
+	result := make(map[string]*checkpoint.CheckpointRepo, len(repos))
 	for _, r := range repos {
-		status := model.CheckpointRepoStatus{
+		status := checkpoint.CheckpointRepoStatus{
 			Enumerate: model.ScanStatusDone,
 			SBOM:      model.ScanStatusPending,
 			FileScan:  model.ScanStatusPending,
@@ -107,7 +108,7 @@ func BuildCheckpointRepos(repos []model.EnumeratedRepo) map[string]*model.Checkp
 			status.FileScan = model.ScanStatusSkipped
 		}
 
-		result[r.FullName] = &model.CheckpointRepo{
+		result[r.FullName] = &checkpoint.CheckpointRepo{
 			Status:        status,
 			Archived:      r.Archived,
 			ForkOf:        r.ForkOf,

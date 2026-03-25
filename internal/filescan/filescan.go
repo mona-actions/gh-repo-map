@@ -76,27 +76,30 @@ func FetchTree(ctx context.Context, tp auth.TokenProvider, owner, repo, branch s
 }
 
 // FilterTargetFiles filters tree entries to only target file patterns.
-func FilterTargetFiles(entries []TreeEntry) []string {
+func FilterTargetFiles(entries []TreeEntry, vendoredDirs, scriptDirs []string) []string {
+	vendoredSet := toSet(vendoredDirs)
+	scriptSet := toSet(scriptDirs)
+
 	var targets []string
 	for _, entry := range entries {
 		if entry.Type != "blob" {
 			continue
 		}
-		if isTargetFile(entry.Path) {
+		if isTargetFile(entry.Path, vendoredSet, scriptSet) {
 			targets = append(targets, entry.Path)
 		}
 	}
 	return targets
 }
 
-func isTargetFile(path string) bool {
+func isTargetFile(path string, vendoredDirs, scriptDirs map[string]struct{}) bool {
 	base := filepath.Base(path)
 	dir := filepath.Dir(path)
 
 	// Skip vendored/third-party dependency directories — these are consumed,
 	// not published by the repo. Their manifest files would falsely register
 	// the repo as the publisher of public packages.
-	if isVendoredPath(dir) {
+	if isVendoredPath(dir, vendoredDirs) {
 		return false
 	}
 
@@ -119,7 +122,7 @@ func isTargetFile(path string) bool {
 	if strings.HasSuffix(base, ".tf") {
 		return true
 	}
-	if strings.HasSuffix(base, ".sh") && isScriptPath(dir) {
+	if strings.HasSuffix(base, ".sh") && isScriptPath(dir, scriptDirs) {
 		return true
 	}
 	if strings.HasSuffix(base, ".csproj") || strings.HasSuffix(base, ".gemspec") {
@@ -131,31 +134,40 @@ func isTargetFile(path string) bool {
 
 // isVendoredPath returns true if the path is inside a vendored dependency directory.
 // Files in these directories belong to third-party packages, not the repo itself.
-func isVendoredPath(dir string) bool {
+func isVendoredPath(dir string, vendoredDirs map[string]struct{}) bool {
+	if len(vendoredDirs) == 0 {
+		return false
+	}
+
 	parts := strings.Split(dir, "/")
 	for _, p := range parts {
-		switch p {
-		case "node_modules", // npm/yarn/pnpm
-			"vendor",           // Go, PHP Composer, Ruby Bundler
-			"third_party",      // common convention
-			"third-party",      // common convention
-			"bower_components", // Bower (legacy)
-			"jspm_packages":    // jspm
+		if _, ok := vendoredDirs[p]; ok {
 			return true
 		}
 	}
 	return false
 }
 
-func isScriptPath(dir string) bool {
+func isScriptPath(dir string, scriptDirs map[string]struct{}) bool {
+	if len(scriptDirs) == 0 {
+		return false
+	}
+
 	parts := strings.Split(dir, "/")
 	for _, p := range parts {
-		switch p {
-		case "scripts", "build", "ci", "hack", "tools", ".":
+		if _, ok := scriptDirs[p]; ok {
 			return true
 		}
 	}
-	return dir == "."
+	return false
+}
+
+func toSet(items []string) map[string]struct{} {
+	set := make(map[string]struct{}, len(items))
+	for _, item := range items {
+		set[item] = struct{}{}
+	}
+	return set
 }
 
 // FileContent holds fetched file content from GraphQL.

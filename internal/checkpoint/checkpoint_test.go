@@ -13,13 +13,13 @@ func TestInitializeAndLoad(t *testing.T) {
 	path := filepath.Join(dir, "checkpoint.json")
 
 	mgr := NewManager(path, 5)
-	repos := map[string]*model.CheckpointRepo{
+	repos := map[string]*CheckpointRepo{
 		"org/repo-1": {
-			Status:        model.CheckpointRepoStatus{Enumerate: model.ScanStatusDone, SBOM: model.ScanStatusPending, FileScan: model.ScanStatusPending},
+			Status:        CheckpointRepoStatus{Enumerate: model.ScanStatusDone, SBOM: model.ScanStatusPending, FileScan: model.ScanStatusPending},
 			DefaultBranch: "main",
 		},
 		"org/repo-2": {
-			Status:        model.CheckpointRepoStatus{Enumerate: model.ScanStatusDone, SBOM: model.ScanStatusPending, FileScan: model.ScanStatusPending},
+			Status:        CheckpointRepoStatus{Enumerate: model.ScanStatusDone, SBOM: model.ScanStatusPending, FileScan: model.ScanStatusPending},
 			DefaultBranch: "master",
 			Archived:      true,
 		},
@@ -57,23 +57,23 @@ func TestUpdateRepoAndFlush(t *testing.T) {
 	path := filepath.Join(dir, "checkpoint.json")
 
 	mgr := NewManager(path, 2) // flush every 2 updates
-	repos := map[string]*model.CheckpointRepo{
-		"org/repo-1": {Status: model.CheckpointRepoStatus{Enumerate: model.ScanStatusDone}},
-		"org/repo-2": {Status: model.CheckpointRepoStatus{Enumerate: model.ScanStatusDone}},
+	repos := map[string]*CheckpointRepo{
+		"org/repo-1": {Status: CheckpointRepoStatus{Enumerate: model.ScanStatusDone}},
+		"org/repo-2": {Status: CheckpointRepoStatus{Enumerate: model.ScanStatusDone}},
 	}
 	if err := mgr.Initialize("github.com", []string{"org"}, repos); err != nil {
 		t.Fatalf("Initialize: %v", err)
 	}
 
 	// Update repo-1 status only (scan data goes to ResultStore in v2)
-	if err := mgr.UpdateRepo("org/repo-1", func(r *model.CheckpointRepo) {
+	if err := mgr.UpdateRepo("org/repo-1", func(r *CheckpointRepo) {
 		r.Status.SBOM = model.ScanStatusDone
 	}); err != nil {
 		t.Fatalf("UpdateRepo: %v", err)
 	}
 
 	// Update repo-2 (should trigger flush at interval=2)
-	if err := mgr.UpdateRepo("org/repo-2", func(r *model.CheckpointRepo) {
+	if err := mgr.UpdateRepo("org/repo-2", func(r *CheckpointRepo) {
 		r.Status.SBOM = model.ScanStatusFailed
 	}); err != nil {
 		t.Fatalf("UpdateRepo: %v", err)
@@ -97,9 +97,9 @@ func TestUpdateRepoNotFound(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "checkpoint.json")
 	mgr := NewManager(path, 5)
-	mgr.Initialize("github.com", []string{}, map[string]*model.CheckpointRepo{})
+	mgr.Initialize("github.com", []string{}, map[string]*CheckpointRepo{})
 
-	err := mgr.UpdateRepo("nonexistent", func(r *model.CheckpointRepo) {})
+	err := mgr.UpdateRepo("nonexistent", func(r *CheckpointRepo) {})
 	if err == nil {
 		t.Error("expected error for nonexistent repo")
 	}
@@ -110,7 +110,7 @@ func TestAtomicWrite(t *testing.T) {
 	path := filepath.Join(dir, "checkpoint.json")
 	mgr := NewManager(path, 5)
 
-	if err := mgr.Initialize("github.com", []string{}, map[string]*model.CheckpointRepo{}); err != nil {
+	if err := mgr.Initialize("github.com", []string{}, map[string]*CheckpointRepo{}); err != nil {
 		t.Fatalf("Initialize: %v", err)
 	}
 
@@ -130,7 +130,7 @@ func TestExists(t *testing.T) {
 		t.Error("should not exist before initialization")
 	}
 
-	mgr.Initialize("github.com", []string{}, map[string]*model.CheckpointRepo{})
+	mgr.Initialize("github.com", []string{}, map[string]*CheckpointRepo{})
 
 	if !mgr.Exists() {
 		t.Error("should exist after initialization")
@@ -177,6 +177,33 @@ func TestResultStoreAppendAndLoadAll(t *testing.T) {
 	}
 	if results["org/repo-2"].FileScanData.FilesScanned != 3 {
 		t.Error("repo-2 should have FilesScanned=3")
+	}
+}
+
+func TestLoadAll_LegacyFileScanDetailWithoutType(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "results.ndjson")
+
+	line := `{"full_name":"org/repo-1","filescan_data":{"files_scanned":1,"tree_truncated":false,"edges":[{"target":"org/workflows","type":"workflow","source_file":".github/workflows/ci.yml","detail":{"uses":"org/workflows/.github/workflows/ci.yml@main"}}]}}` + "\n"
+	if err := os.WriteFile(path, []byte(line), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	results, err := LoadAll(path)
+	if err != nil {
+		t.Fatalf("LoadAll: %v", err)
+	}
+
+	edge := results["org/repo-1"].FileScanData.Edges[0]
+	detail, ok := edge.Detail.(model.WorkflowDetail)
+	if !ok {
+		t.Fatalf("edge detail type = %T, want model.WorkflowDetail", edge.Detail)
+	}
+	if detail.Type != model.DepTypeWorkflow {
+		t.Fatalf("detail.Type = %q, want %q", detail.Type, model.DepTypeWorkflow)
+	}
+	if detail.Uses != "org/workflows/.github/workflows/ci.yml@main" {
+		t.Fatalf("detail.Uses = %q", detail.Uses)
 	}
 }
 
@@ -281,13 +308,13 @@ func TestRepoScanNeeded(t *testing.T) {
 	path := filepath.Join(dir, "checkpoint.json")
 	mgr := NewManager(path, 5)
 
-	repos := map[string]*model.CheckpointRepo{
+	repos := map[string]*CheckpointRepo{
 		"org/repo-1": {
-			Status:        model.CheckpointRepoStatus{Enumerate: model.ScanStatusDone, SBOM: model.ScanStatusPending, FileScan: model.ScanStatusPending},
+			Status:        CheckpointRepoStatus{Enumerate: model.ScanStatusDone, SBOM: model.ScanStatusPending, FileScan: model.ScanStatusPending},
 			DefaultBranch: "main",
 		},
 		"org/repo-2": {
-			Status:        model.CheckpointRepoStatus{Enumerate: model.ScanStatusDone, SBOM: model.ScanStatusDone, FileScan: model.ScanStatusDone},
+			Status:        CheckpointRepoStatus{Enumerate: model.ScanStatusDone, SBOM: model.ScanStatusDone, FileScan: model.ScanStatusDone},
 			DefaultBranch: "develop",
 		},
 	}

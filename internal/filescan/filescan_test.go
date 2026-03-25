@@ -2,6 +2,8 @@ package filescan
 
 import (
 	"testing"
+
+	"github.com/mona-actions/gh-repo-map/internal/config"
 )
 
 func TestFilterTargetFiles(t *testing.T) {
@@ -25,7 +27,7 @@ func TestFilterTargetFiles(t *testing.T) {
 		{Path: "src/app.csproj", Type: "blob"},
 	}
 
-	targets := FilterTargetFiles(entries)
+	targets := FilterTargetFiles(entries, config.DefaultVendoredDirs(), config.DefaultScriptDirs())
 
 	expected := map[string]bool{
 		".github/workflows/ci.yml":      true,
@@ -64,7 +66,7 @@ func TestFilterTargetFiles_SkipsTreeEntries(t *testing.T) {
 		{Path: "src", Type: "tree"},
 	}
 
-	targets := FilterTargetFiles(entries)
+	targets := FilterTargetFiles(entries, config.DefaultVendoredDirs(), config.DefaultScriptDirs())
 	if len(targets) != 0 {
 		t.Errorf("expected 0 targets for tree entries, got %d", len(targets))
 	}
@@ -85,7 +87,7 @@ func TestIsScriptPath(t *testing.T) {
 		{"lib", false},
 	}
 	for _, tt := range tests {
-		got := isScriptPath(tt.dir)
+		got := isScriptPath(tt.dir, toSet(config.DefaultScriptDirs()))
 		if got != tt.want {
 			t.Errorf("isScriptPath(%q) = %v, want %v", tt.dir, got, tt.want)
 		}
@@ -113,7 +115,7 @@ func TestIsVendoredPath(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.dir, func(t *testing.T) {
-			got := isVendoredPath(tt.dir)
+			got := isVendoredPath(tt.dir, toSet(config.DefaultVendoredDirs()))
 			if got != tt.want {
 				t.Errorf("isVendoredPath(%q) = %v, want %v", tt.dir, got, tt.want)
 			}
@@ -135,7 +137,7 @@ func TestFilterTargetFiles_ExcludesVendored(t *testing.T) {
 		{Path: ".github/workflows/ci.yml", Type: "blob"},
 	}
 
-	targets := FilterTargetFiles(entries)
+	targets := FilterTargetFiles(entries, config.DefaultVendoredDirs(), config.DefaultScriptDirs())
 
 	expected := map[string]bool{
 		"package.json":             true,
@@ -153,6 +155,37 @@ func TestFilterTargetFiles_ExcludesVendored(t *testing.T) {
 	for _, f := range targets {
 		if !expected[f] {
 			t.Errorf("unexpected target file (should be excluded): %s", f)
+		}
+	}
+}
+
+func TestFilterTargetFiles_UsesConfiguredScanDirs(t *testing.T) {
+	entries := []TreeEntry{
+		{Path: "package.json", Type: "blob"},
+		{Path: "deps/acme-lib/package.json", Type: "blob"},
+		{Path: "node_modules/lodash/package.json", Type: "blob"},
+		{Path: "scripts/build.sh", Type: "blob"},
+		{Path: "bin/build.sh", Type: "blob"},
+	}
+
+	targets := FilterTargetFiles(entries, []string{"deps"}, []string{"bin"})
+
+	expected := map[string]bool{
+		"package.json":                     true,
+		"node_modules/lodash/package.json": true,
+		"bin/build.sh":                     true,
+	}
+
+	if len(targets) != len(expected) {
+		t.Errorf("got %d targets, want %d", len(targets), len(expected))
+		for _, f := range targets {
+			t.Logf("  got: %s", f)
+		}
+	}
+
+	for _, f := range targets {
+		if !expected[f] {
+			t.Errorf("unexpected target: %s", f)
 		}
 	}
 }

@@ -19,7 +19,7 @@ const checkpointVersion = "2.0.0"
 type Manager struct {
 	mu            sync.Mutex
 	path          string
-	data          *model.Checkpoint
+	data          *Data
 	pendingCount  int
 	flushInterval int
 	results       *ResultStore
@@ -40,11 +40,11 @@ func NewManager(path string, flushInterval int) *Manager {
 }
 
 // Initialize creates a new checkpoint with enumerated repos.
-func (m *Manager) Initialize(host string, orgs []string, repos map[string]*model.CheckpointRepo) error {
+func (m *Manager) Initialize(host string, orgs []string, repos map[string]*CheckpointRepo) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.data = &model.Checkpoint{
+	m.data = &Data{
 		Version:      checkpointVersion,
 		Generation:   1,
 		StartedAt:    time.Now().UTC(),
@@ -52,7 +52,7 @@ func (m *Manager) Initialize(host string, orgs []string, repos map[string]*model
 		Orgs:         orgs,
 		CurrentPhase: "enumerate",
 		Repos:        repos,
-		Stats: model.CheckpointStats{
+		Stats: CheckpointStats{
 			Total:     len(repos),
 			Completed: map[string]int{},
 			Failed:    map[string]int{},
@@ -78,7 +78,7 @@ func (m *Manager) Load() error {
 		return fmt.Errorf("reading checkpoint: %w", err)
 	}
 
-	var cp model.Checkpoint
+	var cp Data
 	if err := json.Unmarshal(data, &cp); err != nil {
 		return fmt.Errorf("parsing checkpoint: %w", err)
 	}
@@ -132,14 +132,14 @@ func (m *Manager) openResults() error {
 }
 
 // Data returns the current checkpoint data (read-only snapshot).
-func (m *Manager) Data() *model.Checkpoint {
+func (m *Manager) Data() *Data {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.data
 }
 
 // UpdateRepo updates a repo's data and optionally flushes to disk.
-func (m *Manager) UpdateRepo(fullName string, updater func(repo *model.CheckpointRepo)) error {
+func (m *Manager) UpdateRepo(fullName string, updater func(repo *CheckpointRepo)) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -166,7 +166,7 @@ func (m *Manager) SetPhase(phase string) {
 
 // MergeRepos adds new repos to an existing checkpoint without overwriting existing entries.
 // Also adds any new orgs to the orgs list. Returns the number of repos added.
-func (m *Manager) MergeRepos(orgs []string, repos map[string]*model.CheckpointRepo) (int, error) {
+func (m *Manager) MergeRepos(orgs []string, repos map[string]*CheckpointRepo) (int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
