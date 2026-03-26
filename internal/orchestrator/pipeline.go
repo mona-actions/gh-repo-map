@@ -115,7 +115,7 @@ func (p *Pipeline) Run(ctx context.Context) error {
 	}
 	cpMgr.Close()
 
-	g, unresolved := runMapPhase(p.cfg, cp, results)
+	g, unresolved, collisions := runMapPhase(p.cfg, cp, results)
 	if p.includeTransitive {
 		g.ComputeTransitive()
 	}
@@ -128,7 +128,7 @@ func (p *Pipeline) Run(ctx context.Context) error {
 	p.tracker.EndCrossRef(totalEdges, totalUnresolved)
 
 	p.tracker.StartOutput()
-	outputPath, err := runReportPhase(p.cfg, g, unresolved, startTime, p.splitThreshold)
+	outputPath, err := runReportPhase(p.cfg, g, unresolved, collisions, startTime, p.splitThreshold)
 	if err != nil {
 		return err
 	}

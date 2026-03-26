@@ -11,10 +11,11 @@ import (
 )
 
 // Phase 4: runReportPhase generates and writes output files.
-func runReportPhase(cfg *config.Config, g *graph.Graph, unresolved map[string][]output.UnresolvedPackage, startTime time.Time, splitThreshold int) (string, error) {
+func runReportPhase(cfg *config.Config, g *graph.Graph, unresolved map[string][]output.UnresolvedPackage, collisions []output.AmbiguousPackage, startTime time.Time, splitThreshold int) (string, error) {
 	stats := buildStats(g)
 	splitInfo := output.SplitInfo{Mode: cfg.Options.OutputSplit, FileIndex: 1, TotalFiles: 1, ThisFileOrgs: cfg.Orgs}
 	schema := output.GenerateOutput(g.Nodes, unresolved, stats, cfg.Orgs, cfg.GitHubHost, startTime, splitInfo)
+	schema.Collisions = collisions
 
 	outputPath := cfg.Output.Path
 	if cfg.Options.OutputSplit == "merged" || (cfg.Options.OutputSplit == "auto" && len(g.Nodes) < 500) {

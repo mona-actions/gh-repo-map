@@ -81,7 +81,6 @@ Authentication (in priority order):
 For enterprise scale (5,000+ repos), use GitHub App auth for higher rate limits.`,
 	Version:       version,
 	SilenceUsage:  true,
-	SilenceErrors: true,
 	RunE:          run,
 }
 
