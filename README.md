@@ -4,6 +4,8 @@ A `gh` CLI extension that maps inter-repository dependencies across GitHub organ
 
 Scans thousands of repositories to discover how they depend on each other — through packages, GitHub Actions workflows, submodules, Docker images, Terraform modules, and build scripts — and produces a JSON dependency graph for visualization and migration planning.
 
+The output files can be uploaded to https://github.com/mona-actions/gh-repomap-dashboard for visualization of your organization's dependency graph, with insights on critical repos.
+
 > [!WARNING]
 > This tools is in an technical preview state(Alpha). It is not yet ready for mass consumption and may contain bugs or incomplete features. Use with caution and provide feedback to @amenocal.
 
