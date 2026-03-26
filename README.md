@@ -4,6 +4,9 @@ A `gh` CLI extension that maps inter-repository dependencies across GitHub organ
 
 Scans thousands of repositories to discover how they depend on each other — through packages, GitHub Actions workflows, submodules, Docker images, Terraform modules, and build scripts — and produces a JSON dependency graph for visualization and migration planning.
 
+> [!WARNING]
+> This tools is in an technical preview state(Alpha). It is not yet ready for mass consumption and may contain bugs or incomplete features. Use with caution and provide feedback to @amenocal.
+
 ## Why
 
 - **Migration planning** — Know which repos must move together and in what order
@@ -231,6 +234,24 @@ Long-running scans are checkpointed to disk every N repos (default: 10). If a sc
 ```bash
 gh repo-map --resume
 ```
+
+### Adding More Orgs?
+
+Already ran a scan with 2 orgs and need to add more? Just update your org list and resume — no need to re-scan everything:
+
+```bash
+# Original scan with 2 orgs
+echo -e "org-a\norg-b" > orgs.txt
+gh repo-map --orgs-file orgs.txt
+
+# Later: add 2 more orgs to the file
+echo -e "org-a\norg-b\norg-c\norg-d" > orgs.txt
+
+# Resume — only scans the new orgs, then re-resolves all cross-org dependencies
+gh repo-map --orgs-file orgs.txt --resume
+```
+
+The `--resume` flag detects which orgs are new, enumerates and scans only those repos, then re-runs dependency resolution across **all** orgs. This means cross-org dependencies (e.g., org-c consuming a package published by org-a) are automatically discovered without re-scanning org-a and org-b.
 
 ### Scale Considerations
 
