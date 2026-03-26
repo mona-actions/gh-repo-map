@@ -5,7 +5,7 @@
 # Runtime artifacts
 checkpoint.json
 checkpoint.json.tmp
-output/
+/output/
 
 # Go
 vendor/
