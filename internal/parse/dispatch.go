@@ -1,41 +1,41 @@
 package parse
 
 import (
-	"path/filepath"
+	"path"
 	"strings"
 
 	"github.com/mona-actions/gh-repo-map/internal/model"
 )
 
-// ParseFile dispatches parsing based on file path and returns discovered edges,
+// ParseFile dispatches parsing based on a slash-separated repository path and returns discovered edges,
 // published identities, and consumed packages.
-func ParseFile(path, content string, knownOrgs map[string]bool, registries []string, host string) ([]model.FileScanEdge, []model.PublishedIdentity, []model.ConsumedPackage) {
+func ParseFile(repoPath, content string, knownOrgs map[string]bool, registries []string, host string) ([]model.FileScanEdge, []model.PublishedIdentity, []model.ConsumedPackage) {
 	var edges []model.FileScanEdge
 	var published []model.PublishedIdentity
 	var consumed []model.ConsumedPackage
 
-	base := filepath.Base(path)
-	dir := filepath.Dir(path)
+	base := path.Base(repoPath)
+	dir := path.Dir(repoPath)
 
 	switch {
 	case strings.Contains(dir, ".github/workflows") && (strings.HasSuffix(base, ".yml") || strings.HasSuffix(base, ".yaml")):
-		e, _ := ParseActionsWorkflow(content, path, knownOrgs)
+		e, _ := ParseActionsWorkflow(content, repoPath, knownOrgs)
 		edges = append(edges, e...)
 
 	case base == ".gitmodules":
-		edges = append(edges, ParseGitmodules(content, path, host, knownOrgs)...)
+		edges = append(edges, ParseGitmodules(content, repoPath, host, knownOrgs)...)
 
 	case strings.HasPrefix(base, "Dockerfile"):
-		edges = append(edges, ParseDockerfile(content, path, host, registries, knownOrgs)...)
+		edges = append(edges, ParseDockerfile(content, repoPath, host, registries, knownOrgs)...)
 
 	case base == "docker-compose.yml" || base == "docker-compose.yaml":
-		edges = append(edges, ParseDockerCompose(content, path, host, registries, knownOrgs)...)
+		edges = append(edges, ParseDockerCompose(content, repoPath, host, registries, knownOrgs)...)
 
 	case strings.HasSuffix(base, ".tf"):
-		edges = append(edges, ParseTerraform(content, path, host, knownOrgs)...)
+		edges = append(edges, ParseTerraform(content, repoPath, host, knownOrgs)...)
 
 	case strings.HasSuffix(base, ".sh") || base == "Makefile":
-		edges = append(edges, ParseScript(content, path, host, knownOrgs)...)
+		edges = append(edges, ParseScript(content, repoPath, host, knownOrgs)...)
 
 	case base == "package.json":
 		c, p := ParsePackageJSON(content)
