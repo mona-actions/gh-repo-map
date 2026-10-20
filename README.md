@@ -154,7 +154,12 @@ Both methods can be combined — `--orgs-file` orgs are appended to config orgs 
 
 ## GHES Support
 
-Works with GitHub Enterprise Server 3.6+ (required for SBOM API):
+Supports GitHub Enterprise Server, including older releases with the legacy SBOM API
+(introduced in GHES 3.6). SBOM collection first uses the asynchronous API: generate
+a report, poll until ready, then download SPDX without API credentials. If generation
+returns 404, the legacy SBOM endpoint is tried **only** for a non-GitHub.com API
+identified by the `X-GitHub-Enterprise-Version` response header. When SBOM data is
+unavailable, manifest file scanning still provides dependency discovery.
 
 ```bash
 gh repo-map --github-host github.example.com --orgs-file orgs.txt
@@ -218,7 +223,7 @@ Manually correct package→repo mappings when automatic detection fails. See [`o
 ```
 Phase 1: Enumerate     List all repos across configured orgs (go-github REST)
     │
-Phase 2A: SBOM         Fetch dependency data via GitHub's SBOM API (SPDX)
+Phase 2A: SBOM         Generate, poll, and download GitHub's SBOM report (SPDX)
     │
 Phase 2B: File Scan    Discover files via Git Trees API, fetch via githubv4 GraphQL,
     │                  parse workflows, Dockerfiles, Terraform, scripts, manifests
