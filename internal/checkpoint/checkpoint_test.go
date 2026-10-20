@@ -13,6 +13,7 @@ func TestInitializeAndLoad(t *testing.T) {
 	path := filepath.Join(dir, "checkpoint.json")
 
 	mgr := NewManager(path, 5)
+	t.Cleanup(mgr.Close)
 	repos := map[string]*CheckpointRepo{
 		"org/repo-1": {
 			Status:        CheckpointRepoStatus{Enumerate: model.ScanStatusDone, SBOM: model.ScanStatusPending, FileScan: model.ScanStatusPending},
@@ -36,6 +37,7 @@ func TestInitializeAndLoad(t *testing.T) {
 
 	// Load into a new manager
 	mgr2 := NewManager(path, 5)
+	t.Cleanup(mgr2.Close)
 	if err := mgr2.Load(); err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -57,6 +59,7 @@ func TestUpdateRepoAndFlush(t *testing.T) {
 	path := filepath.Join(dir, "checkpoint.json")
 
 	mgr := NewManager(path, 2) // flush every 2 updates
+	t.Cleanup(mgr.Close)
 	repos := map[string]*CheckpointRepo{
 		"org/repo-1": {Status: CheckpointRepoStatus{Enumerate: model.ScanStatusDone}},
 		"org/repo-2": {Status: CheckpointRepoStatus{Enumerate: model.ScanStatusDone}},
@@ -81,6 +84,7 @@ func TestUpdateRepoAndFlush(t *testing.T) {
 
 	// Verify flush happened by loading
 	mgr2 := NewManager(path, 5)
+	t.Cleanup(mgr2.Close)
 	if err := mgr2.Load(); err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -97,7 +101,10 @@ func TestUpdateRepoNotFound(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "checkpoint.json")
 	mgr := NewManager(path, 5)
-	mgr.Initialize("github.com", []string{}, map[string]*CheckpointRepo{})
+	t.Cleanup(mgr.Close)
+	if err := mgr.Initialize("github.com", []string{}, map[string]*CheckpointRepo{}); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
 
 	err := mgr.UpdateRepo("nonexistent", func(r *CheckpointRepo) {})
 	if err == nil {
@@ -109,6 +116,7 @@ func TestAtomicWrite(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "checkpoint.json")
 	mgr := NewManager(path, 5)
+	t.Cleanup(mgr.Close)
 
 	if err := mgr.Initialize("github.com", []string{}, map[string]*CheckpointRepo{}); err != nil {
 		t.Fatalf("Initialize: %v", err)
@@ -125,12 +133,15 @@ func TestExists(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "checkpoint.json")
 	mgr := NewManager(path, 5)
+	t.Cleanup(mgr.Close)
 
 	if mgr.Exists() {
 		t.Error("should not exist before initialization")
 	}
 
-	mgr.Initialize("github.com", []string{}, map[string]*CheckpointRepo{})
+	if err := mgr.Initialize("github.com", []string{}, map[string]*CheckpointRepo{}); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
 
 	if !mgr.Exists() {
 		t.Error("should exist after initialization")
@@ -307,6 +318,7 @@ func TestRepoScanNeeded(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "checkpoint.json")
 	mgr := NewManager(path, 5)
+	t.Cleanup(mgr.Close)
 
 	repos := map[string]*CheckpointRepo{
 		"org/repo-1": {
@@ -318,7 +330,9 @@ func TestRepoScanNeeded(t *testing.T) {
 			DefaultBranch: "develop",
 		},
 	}
-	mgr.Initialize("github.com", []string{"org"}, repos)
+	if err := mgr.Initialize("github.com", []string{"org"}, repos); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
 
 	needSBOM, needFS, branch := mgr.RepoScanNeeded("org/repo-1")
 	if !needSBOM || !needFS {
