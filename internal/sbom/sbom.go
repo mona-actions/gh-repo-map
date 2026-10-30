@@ -161,7 +161,7 @@ func fetchDocument(ctx context.Context, client *github.Client, owner, repo strin
 		}
 		resp.Body.Close()
 		switch resp.StatusCode {
-		case http.StatusAccepted:
+		case http.StatusCreated, http.StatusAccepted:
 			delay := max(pollDelay, sbomRetryAfter(resp.Header))
 			if err := waitSBOM(ctx, delay); err != nil {
 				return nil, false, err
@@ -292,33 +292,29 @@ func sbomRequest(ctx context.Context, client *http.Client, req *http.Request) (*
 }
 
 func fetchLegacyDocument(ctx context.Context, original *github.Client, api *http.Client, owner, repo string) (*github.SBOMInfo, bool, error) {
-	client := github.NewClient(api)
-	client.BaseURL = original.BaseURL
-	client.UserAgent = original.UserAgent
-	for attempt := 0; ; attempt++ {
-		document, resp, err := client.DependencyGraph.GetSBOM(ctx, owner, repo)
-		if ctx.Err() != nil {
-			return nil, false, ctx.Err()
-		}
-		if err == nil {
-			if document == nil {
-				return nil, false, errors.New("missing legacy SBOM document")
-			}
-			return document.SBOM, true, nil
-		}
-		var rate *github.RateLimitError
-		var abuse *github.AbuseRateLimitError
-		limited := errors.As(err, &rate) || errors.As(err, &abuse) ||
-			(resp != nil && resp.StatusCode == http.StatusForbidden &&
-				(resp.Header.Get("X-RateLimit-Remaining") == "0" || resp.Header.Get("Retry-After") != ""))
-		if resp != nil && !limited && (resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusNotFound) {
-			return nil, false, nil
-		}
-		if resp == nil || (!limited && !retry.IsRetryableStatus(resp.StatusCode)) || attempt >= retry.MaxRetries {
-			return nil, false, errors.New("legacy SBOM request failed")
-		}
-		if err := waitSBOM(ctx, max(time.Second<<uint(attempt), sbomRetryAfter(resp.Header))); err != nil {
-			return nil, false, err
-		}
+	path := fmt.Sprintf("repos/%s/%s/dependency-graph/sbom", url.PathEscape(owner), url.PathEscape(repo))
+	req, err := original.NewRequest(http.MethodGet, path, nil)
+	if err != nil {
+		return nil, false, errors.New("cannot create legacy SBOM request")
 	}
+	resp, err := sbomRequest(ctx, api, req)
+	if err != nil {
+		return nil, false, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusNotFound {
+		slog.Debug("SBOM not available", "repo", owner+"/"+repo, "status", resp.StatusCode)
+		return nil, false, nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, false, fmt.Errorf("legacy SBOM request returned HTTP %d", resp.StatusCode)
+	}
+	var document github.SBOM
+	if err := decodeSBOMJSON(resp.Body, &document); err != nil {
+		return nil, false, err
+	}
+	if document.SBOM == nil {
+		return nil, false, errors.New("missing legacy SBOM document")
+	}
+	return document.SBOM, true, nil
 }

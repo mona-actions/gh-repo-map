@@ -3,6 +3,7 @@ package sbom
 import (
 	"context"
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -17,6 +18,44 @@ func TestFetchSBOMAsyncUnavailable(t *testing.T) {
 			}
 			f.assertNoLegacy(t)
 		})
+	}
+}
+
+func TestFetchSBOMLegacyResponseSizeLimit(t *testing.T) {
+	for _, extra := range []int{0, 1} {
+		t.Run(map[int]string{0: "at limit", 1: "over limit"}[extra], func(t *testing.T) {
+			f := newSBOMFixture(t)
+			f.enterpriseVersion = "3.6.0"
+			f.generateStatus = http.StatusNotFound
+			f.legacyStatus = http.StatusOK
+			wrapperSize := len(`{"sbom":` + testSPDX + `}`)
+			f.document = testSPDX + strings.Repeat(" ", maxSBOMBody-wrapperSize+extra)
+			packages, available, err := f.fetch(context.Background())
+			if extra == 0 {
+				if err != nil || !available || len(packages) != 2 {
+					t.Errorf("at limit: packages=%+v available=%v err=%v", packages, available, err)
+				}
+			} else if err == nil || !strings.Contains(err.Error(), "exceeds size limit") || available || len(packages) != 0 {
+				t.Errorf("over limit: packages=%+v available=%v err=%v, want size-limit error", packages, available, err)
+			}
+		})
+	}
+}
+
+func TestFetchSBOMLegacyTransientRecovery(t *testing.T) {
+	f := newSBOMFixture(t)
+	f.enterpriseVersion = "3.6.0"
+	f.generateStatus = http.StatusNotFound
+	f.legacyStatus = http.StatusOK
+	f.transientStage = "legacy"
+	packages, available, err := f.fetch(context.Background())
+	if err != nil || !available || len(packages) != 2 {
+		t.Fatalf("packages=%+v available=%v err=%v, want recovered legacy SBOM", packages, available, err)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.legacy != 2 {
+		t.Errorf("legacy requests=%d, want 2", f.legacy)
 	}
 }
 

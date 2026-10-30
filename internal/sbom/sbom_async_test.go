@@ -67,6 +67,7 @@ type sbomFixture struct {
 	legacyStatus      int
 	reportURL         string
 	pollStatus        int
+	pendingStatus     int
 	pending           int
 	transientStage    string
 	downloadStatus    int
@@ -86,7 +87,8 @@ func newSBOMFixture(t *testing.T) *sbomFixture {
 	t.Helper()
 	f := &sbomFixture{
 		t: t, generateStatus: http.StatusCreated,
-		pollStatus: http.StatusFound, downloadStatus: http.StatusOK, document: testSPDX, legacyStatus: http.StatusGone,
+		pendingStatus: http.StatusAccepted,
+		pollStatus:    http.StatusFound, downloadStatus: http.StatusOK, document: testSPDX, legacyStatus: http.StatusGone,
 	}
 	f.download = httptest.NewTLSServer(http.HandlerFunc(f.serveDownload))
 	t.Cleanup(f.download.Close)
@@ -126,6 +128,10 @@ func (f *sbomFixture) serveAPI(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case testRepoPath:
 		f.legacy++
+		if f.transientStage == "legacy" && f.legacy == 1 {
+			http.Error(w, `{"message":"try again"}`, http.StatusServiceUnavailable)
+			return
+		}
 		w.WriteHeader(f.legacyStatus)
 		if f.legacyStatus == http.StatusOK {
 			fmt.Fprint(w, `{"sbom":`+f.document+`}`)
@@ -152,7 +158,7 @@ func (f *sbomFixture) serveAPI(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if f.polls <= f.pending {
-			w.WriteHeader(http.StatusAccepted)
+			w.WriteHeader(f.pendingStatus)
 			return
 		}
 		if f.pollStatus == http.StatusFound {
@@ -231,6 +237,25 @@ func TestFetchSBOMAsyncEmptyDocument(t *testing.T) {
 		t.Errorf("got packages=%+v available=%v err=%v, want valid empty SBOM", packages, available, err)
 	}
 	f.assertNoLegacy(t)
+}
+
+func TestFetchSBOMAsyncPendingCreated(t *testing.T) {
+	f := newSBOMFixture(t)
+	f.pending = 1
+	f.pendingStatus = http.StatusCreated
+	packages, available, err := f.fetch(context.Background())
+	if err != nil || !available || len(packages) != 2 {
+		t.Fatalf("packages=%+v available=%v err=%v, want completed SBOM after HTTP 201", packages, available, err)
+	}
+	f.assertNoLegacy(t)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.polls != 2 || f.downloads != 1 {
+		t.Errorf("poll/download=%d/%d, want 2/1", f.polls, f.downloads)
+	}
+	if len(f.pollTimes) == 2 && f.pollTimes[1].Sub(f.pollTimes[0]) < 100*time.Millisecond {
+		t.Error("pending report was polled without a meaningful delay")
+	}
 }
 
 func TestFetchSBOMAsyncTransientRecovery(t *testing.T) {
