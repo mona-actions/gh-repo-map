@@ -44,7 +44,7 @@ func Run(ctx context.Context, cfg *config.Config, tp auth.TokenProvider, tracker
 	return NewPipeline(cfg, tp, tracker, resumeMode, includeTransitive, cleanCp, splitThreshold).Run(ctx)
 }
 
-// DryRun executes Phase 1 only and prints estimates.
+// DryRun enumerates repositories and prints estimates without writing scan state.
 func DryRun(ctx context.Context, cfg *config.Config, tp auth.TokenProvider, tracker progress.Tracker) error {
 	return NewPipeline(cfg, tp, tracker, false, false, false, 0).DryRun(ctx)
 }
@@ -142,12 +142,12 @@ func (p *Pipeline) Run(ctx context.Context) error {
 	return nil
 }
 
-// DryRun executes Phase 1 only and prints estimates.
+// DryRun enumerates repositories and prints estimates without writing scan state.
 func (p *Pipeline) DryRun(ctx context.Context) error {
 	defer p.tracker.Stop()
 
-	cpMgr := checkpoint.NewManager("", 0)
-	enumStats, err := runEnumeratePhase(ctx, p.cfg, p.tp, cpMgr, p.tracker)
+	p.tracker.StartEnumerate()
+	_, enumStats, err := enumerateRepos(ctx, p.cfg, p.tp, p.tracker)
 	if err != nil {
 		return err
 	}
