@@ -6,7 +6,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"path/filepath"
+	"path"
 	"strings"
 
 	"github.com/mona-actions/gh-repo-map/internal/auth"
@@ -75,7 +75,7 @@ func FetchTree(ctx context.Context, tp auth.TokenProvider, owner, repo, branch s
 	}, nil
 }
 
-// FilterTargetFiles filters tree entries to only target file patterns.
+// FilterTargetFiles filters slash-separated Git tree paths to only target file patterns.
 func FilterTargetFiles(entries []TreeEntry, vendoredDirs, scriptDirs []string) []string {
 	vendoredSet := toSet(vendoredDirs)
 	scriptSet := toSet(scriptDirs)
@@ -92,9 +92,9 @@ func FilterTargetFiles(entries []TreeEntry, vendoredDirs, scriptDirs []string) [
 	return targets
 }
 
-func isTargetFile(path string, vendoredDirs, scriptDirs map[string]struct{}) bool {
-	base := filepath.Base(path)
-	dir := filepath.Dir(path)
+func isTargetFile(repoPath string, vendoredDirs, scriptDirs map[string]struct{}) bool {
+	base := path.Base(repoPath)
+	dir := path.Dir(repoPath)
 
 	// Skip vendored/third-party dependency directories — these are consumed,
 	// not published by the repo. Their manifest files would falsely register
